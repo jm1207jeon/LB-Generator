@@ -3,6 +3,22 @@ window.LB = window.LB || {};
 
 LB.exporter = (() => {
 
+  /* 출력 전 배경/객체 이미지가 모두 디코딩되어 있도록 보장 */
+  async function ensureImages(editor) {
+    const urls = [];
+    if (editor.state.label.bg) urls.push(editor.state.label.bg);
+    for (const o of editor.state.objects) {
+      if (o.type === 'image' && o.dataUrl) urls.push(o.dataUrl);
+    }
+    await Promise.all(urls.map(u => new Promise(res => {
+      let img = editor.imageCache.get(u);
+      if (!img) { img = new Image(); img.src = u; editor.imageCache.set(u, img); }
+      if (img.complete) return res();
+      img.addEventListener('load', res, { once: true });
+      img.addEventListener('error', res, { once: true });
+    })));
+  }
+
   /* 라벨을 지정 DPI 캔버스로 렌더링 */
   function renderToCanvas(editor, dpi) {
     const { w: LW, h: LH } = editor.state.label;
@@ -17,6 +33,10 @@ LB.exporter = (() => {
     ctx.beginPath();
     ctx.rect(0, 0, cv.width, cv.height);
     ctx.clip();
+    if (editor.state.label.bg && editor.state.label.bgInclude !== false) {
+      const bgImg = editor.getImage(editor.state.label.bg);
+      if (bgImg) ctx.drawImage(bgImg, 0, 0, cv.width, cv.height);
+    }
     for (const o of editor.state.objects) {
       editor.drawObject(ctx, o, pxPerMm, 0, 0, true);
     }
@@ -47,6 +67,7 @@ LB.exporter = (() => {
    */
   async function exportPdf(editor, { dpi = 600, pattern, fields, outDirHandle }) {
     const { w: LW, h: LH } = editor.state.label;
+    await ensureImages(editor);
     const canvas = renderToCanvas(editor, dpi);
     const png = canvas.toDataURL('image/png');
 

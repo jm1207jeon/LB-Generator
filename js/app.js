@@ -94,22 +94,30 @@
     });
   }
 
-  /* ---------------- DB 로딩 ---------------- */
+  /* ---------------- DB 로딩 (.xlsm / .xlsx / .xls / .csv — 라벨출력DB 단독 파일 지원) ---------------- */
   async function loadDbFile(file) {
     $('dbStatus').textContent = 'DB 파싱 중…';
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
-    const sheetName = wb.SheetNames.includes('라벨DB') ? '라벨DB' : wb.SheetNames[0];
-    const ws = wb.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 'A', raw: false, defval: '' });
-    const data = rows.slice(1).filter(r => r.H != null && String(r.H).trim() !== '');
-    if (!data.length) {
-      $('dbStatus').textContent = `시트 "${sheetName}"의 H열(품목번호)에서 데이터를 찾지 못했습니다.`;
+
+    // 시트 선택: H열(품목번호) 데이터가 가장 많은 시트 ('라벨DB' 우선)
+    let best = null, bestRows = null, bestCount = -1;
+    for (const name of wb.SheetNames) {
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 'A', raw: false, defval: '' });
+      if (!rows.length) continue;
+      // 헤더 행 감지: H열에 'Product Number' 류의 텍스트
+      const start = /product\s*number/i.test(String(rows[0].H || '')) ? 1 : 0;
+      const data = rows.slice(start).filter(r => r.H != null && String(r.H).trim() !== '');
+      const score = data.length + (name === '라벨DB' ? 1e9 : 0);
+      if (score > bestCount) { bestCount = score; best = name; bestRows = data; }
+    }
+    if (!bestRows || !bestRows.length) {
+      $('dbStatus').textContent = 'H열(품목번호)에서 데이터를 찾지 못했습니다.';
       $('dbStatus').className = 'hint err';
       return;
     }
-    applyDb({ fileName: file.name, loadedAt: new Date().toISOString(), count: data.length }, data);
-    await LB.store.set('db', { meta: S.dbMeta, rows: data });
+    applyDb({ fileName: file.name, sheet: best, loadedAt: new Date().toISOString(), count: bestRows.length }, bestRows);
+    await LB.store.set('db', { meta: S.dbMeta, rows: bestRows });
   }
 
   function applyDb(meta, rows) {
@@ -163,19 +171,27 @@
   }
 
   /* ---------------- DataMatrix (bwip-js, 엑셀 VBA의 gs1datamatrix 대응) ---------------- */
-  let lastBarcodeText = null;
-  function updateBarcode() {
-    const text = fields.GTIN ? fields.UDI_FULL : '';
-    if (text === lastBarcodeText) return;
-    lastBarcodeText = text;
-    if (!text) { editor.setBarcode(null, null); return; }
-    try {
-      const cv = document.createElement('canvas');
-      bwipjs.toCanvas(cv, { bcid: 'gs1datamatrix', text, scale: 10 });
-      editor.setBarcode(text, cv);
-    } catch (e) {
-      console.warn('DataMatrix 생성 실패:', e);
-      editor.setBarcode(null, null);
+  const lastBarcodeTexts = new Map();   // binding -> text
+  function updateBarcodes() {
+    const bindings = new Set(['UDI_FULL']);
+    for (const o of S.objects) if (o.type === 'barcode') bindings.add(o.binding || 'UDI_FULL');
+    for (const binding of bindings) {
+      const text = fields.GTIN ? (fields[binding] || '') : '';
+      if (text === lastBarcodeTexts.get(binding)) continue;
+      lastBarcodeTexts.set(binding, text);
+      if (!text) { editor.setBarcode(binding, null); continue; }
+      try {
+        const cv = document.createElement('canvas');
+        // 여백(quiet zone) 포함 흰 배경 — 회색 밴드 위에서도 판독성 유지
+        bwipjs.toCanvas(cv, {
+          bcid: 'gs1datamatrix', text, scale: 10,
+          paddingwidth: 2, paddingheight: 2, backgroundcolor: 'FFFFFF',
+        });
+        editor.setBarcode(binding, cv);
+      } catch (e) {
+        console.warn('DataMatrix 생성 실패(' + binding + '):', e);
+        editor.setBarcode(binding, null);
+      }
     }
   }
 
@@ -262,7 +278,7 @@
   function refreshAll() {
     fields = computeFields();
     updateRefTable();
-    updateBarcode();
+    updateBarcodes();
     loadSlotImages(false);
     editor.render();
     saveProject();
@@ -314,15 +330,39 @@
     $('chkAutoTransparent').checked = S.settings.autoTransparent;
     $('inpLabelW').value = S.label.w;
     $('inpLabelH').value = S.label.h;
+    updateBgStatus();
 
     refreshAll();
     $('inpExp').value = S.inputs.exp;
     editor.zoomFit();
   }
 
-  /* ---------------- 기본 템플릿 ---------------- */
+  /* ---------------- 기본 템플릿 ----------------
+   * 샘플 출력 PDF(130806/151218/160401)에서 추출한 A3(297×420mm) 라벨 세트 레이아웃.
+   * js/default_template.js(LB.DEFAULT_TEMPLATE) + assets/template_bg.js(LB.TEMPLATE_BG) 사용.
+   */
   function applyDefaultTemplate(confirmFirst = true) {
     if (confirmFirst && S.objects.length && !confirm('현재 레이아웃을 기본 템플릿으로 교체할까요?')) return;
+    if (window.LB && LB.DEFAULT_TEMPLATE) {
+      const tpl = JSON.parse(JSON.stringify(LB.DEFAULT_TEMPLATE));
+      S.label.w = tpl.label.w; S.label.h = tpl.label.h;
+      S.label.bg = (tpl.useTemplateBg && LB.TEMPLATE_BG) ? LB.TEMPLATE_BG : '';
+      S.label.bgInclude = true;
+      S.objects = tpl.objects;
+      editor.state.label = S.label;
+      editor.state.objects = S.objects;
+      $('inpLabelW').value = S.label.w;
+      $('inpLabelH').value = S.label.h;
+      updateBgStatus();
+      editor.select([]);
+      refreshAll();
+      editor.zoomFit();
+      return;
+    }
+    applySimpleTemplate();
+  }
+
+  function applySimpleTemplate() {
     const T = (x, y, w, h, text, opt = {}) => ({
       type: 'text', x, y, w, h, text,
       font: opt.font || 'Arial', sizePt: opt.size || 7, bold: !!opt.bold, italic: false,
@@ -352,6 +392,19 @@
     refreshAll();
   }
 
+  /* ---------------- 배경 이미지 ---------------- */
+  function updateBgStatus() {
+    const st = $('bgStatus');
+    if (S.label.bg) {
+      st.textContent = S.label.bg === (window.LB && LB.TEMPLATE_BG) ? '기본 라벨 템플릿 배경 적용됨' : '사용자 배경 적용됨';
+      st.className = 'hint ok';
+    } else {
+      st.textContent = '배경 없음';
+      st.className = 'hint';
+    }
+    $('chkBgInclude').checked = S.label.bgInclude !== false;
+  }
+
   /* ---------------- 속성 패널 ---------------- */
   function updatePropBox() {
     const sel = editor.selectedObjects();
@@ -362,6 +415,7 @@
         $('propTitle').textContent = `${sel.length}개 객체 선택됨`;
         $('propTextWrap').style.display = 'none';
         $('propSrcWrap').style.display = 'none';
+        $('propBcWrap').style.display = 'none';
         $('propX').value = $('propY').value = $('propW').value = $('propH').value = '';
       }
       return;
@@ -372,6 +426,8 @@
     $('propX').value = o.x; $('propY').value = o.y; $('propW').value = o.w; $('propH').value = o.h;
     $('propTextWrap').style.display = o.type === 'text' ? '' : 'none';
     $('propSrcWrap').style.display = o.type === 'image' ? '' : 'none';
+    $('propBcWrap').style.display = o.type === 'barcode' ? '' : 'none';
+    if (o.type === 'barcode') $('propBinding').value = o.binding || 'UDI_FULL';
     if (o.type === 'text') $('propText').value = o.text || '';
     if (o.type === 'image') {
       $('propSource').value = o.sourceField || '';
@@ -443,6 +499,31 @@
       S.settings.autoTransparent = $('chkAutoTransparent').checked;
       imgProcCache.clear(); loadSlotImages(true);
     });
+    // 배경 이미지
+    $('btnBgLoad').onclick = () => $('fileBg').click();
+    $('fileBg').onchange = async (e) => {
+      const file = e.target.files[0]; e.target.value = '';
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      const b64 = btoa(new Uint8Array(buf).reduce((s, b) => s + String.fromCharCode(b), ''));
+      S.label.bg = `data:${file.type || 'image/png'};base64,${b64}`;
+      updateBgStatus(); editor.render(); saveProject();
+    };
+    $('btnBgTpl').onclick = () => {
+      if (window.LB && LB.TEMPLATE_BG) {
+        S.label.bg = LB.TEMPLATE_BG;
+        updateBgStatus(); editor.render(); saveProject();
+      }
+    };
+    $('btnBgClear').onclick = () => {
+      S.label.bg = '';
+      updateBgStatus(); editor.render(); saveProject();
+    };
+    $('chkBgInclude').addEventListener('change', () => {
+      S.label.bgInclude = $('chkBgInclude').checked;
+      saveProject();
+    });
+
     const onLabelSize = () => {
       S.label.w = Number($('inpLabelW').value) || 100;
       S.label.h = Number($('inpLabelH').value) || 70;
@@ -525,6 +606,14 @@
     $('propText').addEventListener('input', () => {
       const sel = editor.selectedObjects();
       if (sel.length === 1 && sel[0].type === 'text') { sel[0].text = $('propText').value; editor.changed(); }
+    });
+    $('propBinding').addEventListener('change', () => {
+      const sel = editor.selectedObjects();
+      if (sel.length === 1 && sel[0].type === 'barcode') {
+        sel[0].binding = $('propBinding').value;
+        updateBarcodes();
+        editor.changed();
+      }
     });
     $('propSource').addEventListener('change', () => {
       const sel = editor.selectedObjects();

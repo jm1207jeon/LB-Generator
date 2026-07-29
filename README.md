@@ -21,7 +21,7 @@ python -m http.server 8000
 
 | 기능 | 설명 | 원본 엑셀 대응 |
 |---|---|---|
-| DB 로딩 | `.xlsm/.xlsx/.csv`에서 `라벨DB` 시트 로딩, 브라우저(IndexedDB)에 저장되어 재방문 시 자동 복원 | `라벨DB` 시트 (H열 품목번호 키) |
+| DB 로딩 | `.xlsm/.xlsx/.xls/.csv` 로딩 — 라벨 제작 파일의 `라벨DB` 시트, 또는 **라벨출력DB 단독 엑셀 파일**(.xls) 모두 지원. H열(품목번호) 데이터가 가장 많은 시트를 자동 선택. 브라우저(IndexedDB)에 저장되어 재방문 시 자동 복원 | `라벨DB` 시트 (H열 품목번호 키) |
 | 사용자 입력 | LOT, SN, MFG, 유효기간(개월) 입력. EXP는 `EDATE(MFG, n) - 1일` 자동 계산(수동 전환 가능) | `B2, D2, D1`, `=EDATE(D1,36)-1` |
 | DB 참조 값 | 품목번호로 제품명·규격·GTIN·치수·이미지 파일명 등 자동 조회 | `INDEX/MATCH(... 라벨DB!H:H ...)` |
 | UDI | `(01)GTIN(10)LOT(17)YYMMDD(240)품목번호(21)SN` 자동 조합 (빈 그룹은 생략) | `D6` 수식 |
@@ -32,6 +32,8 @@ python -m http.server 8000
 | 텍스트 서식 | 폰트·크기(pt)·굵게·기울임·자간·문단정렬을 객체별/선택 객체 일괄 적용 | 텍스트박스 서식 |
 | 라벨 크기 | 가로/세로(mm) 직접 입력 | 인쇄 영역 |
 | PDF 출력 | 라벨 실측 크기(mm) PDF 생성 (300/600/1200 DPI). 저장 폴더 사전 지정 + 파일명 규칙 자동 생성 | 프린터 출력 대체 |
+| 배경 이미지 | 라벨 레이아웃 배경 이미지 적용(내장 기본 배경 또는 사용자 이미지). PDF 출력 포함 여부 선택 | 라벨 서식 원판 |
+| 기본 템플릿 | 실제 샘플 출력 PDF 3종에서 추출한 **A3(297×420mm) 라벨 세트 레이아웃** 내장 — 배경(PSL/PML/ICL/PMFL 서식) + 텍스트 90여 개 + DataMatrix 9개 + 이미지 슬롯 7개가 원본 좌표(mm) 그대로 배치됨 | 샘플 출력물 |
 | 템플릿 | 레이아웃 자동 저장(IndexedDB) + JSON 내보내기/가져오기 | `ImgConfig` 숨김 시트 |
 
 ## 텍스트 플레이스홀더
@@ -60,12 +62,23 @@ python -m http.server 8000
 ## 폴더 구조
 
 ```
-index.html        앱 진입점
+index.html              앱 진입점
 css/style.css
-js/store.js       IndexedDB 영속화
-js/imaging.js     이미지 로딩·배경 자동 투명화
-js/editor.js      캔버스 라벨 편집기 (줌/패닝/드래그/리사이즈)
-js/exporter.js    실측 크기 PDF 출력 (jsPDF)
-js/app.js         메인 로직 (DB 파싱, 필드 계산, UDI, UI)
-libs/             SheetJS · bwip-js · jsPDF (오프라인 번들)
+js/store.js             IndexedDB 영속화
+js/imaging.js           이미지 로딩·배경 자동 투명화
+js/editor.js            캔버스 라벨 편집기 (줌/패닝/드래그/리사이즈, 배경/다중 바코드)
+js/exporter.js          실측 크기 PDF 출력 (jsPDF)
+js/app.js               메인 로직 (DB 파싱, 필드 계산, UDI, UI)
+js/default_template.js  샘플 PDF에서 추출한 기본 A3 라벨 세트 레이아웃
+assets/template_bg.js   기본 배경 이미지 (빈 라벨 서식, 300dpi, base64)
+libs/                   SheetJS · bwip-js · jsPDF (오프라인 번들)
 ```
+
+### 기본 템플릿 바코드 구성
+
+| 위치 | 데이터 |
+|---|---|
+| 상단 밴드(PSL/PML), 소형 라벨 4개, PMFL 하단 | UDI 전체 `(01)(10)(17)(240)(21)` |
+| ICL(Implant Card) 2개 | UDI-DI `(01)` |
+
+바코드 객체 선택 후 속성 패널에서 데이터(UDI 전체 / 1행 / 2행 / UDI-DI)를 변경할 수 있습니다.

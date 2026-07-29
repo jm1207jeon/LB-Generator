@@ -16,7 +16,7 @@ LB.Editor = class {
     this.view = { scale: 6, ox: 40, oy: 40 };
     this.selection = new Set();    // object id
     this.imageCache = new Map();   // dataUrl -> HTMLImageElement
-    this.barcodeCache = { text: null, canvas: null };
+    this.barcodes = new Map();     // binding -> canvas
     this.resolver = (t) => t;      // 플레이스홀더 치환 함수 (app.js가 주입)
     this.onSelectionChange = () => {};
     this.onModelChange = () => {};
@@ -269,8 +269,9 @@ LB.Editor = class {
     return img.complete && img.naturalWidth ? img : null;
   }
 
-  setBarcode(text, canvas) {
-    this.barcodeCache = { text, canvas };
+  setBarcode(binding, canvas) {
+    if (canvas) this.barcodes.set(binding, canvas);
+    else this.barcodes.delete(binding);
     this.render();
   }
 
@@ -290,6 +291,12 @@ LB.Editor = class {
     ctx.fillStyle = '#fff';
     ctx.fillRect(lx, ly, LW * s, LH * s);
     ctx.restore();
+
+    // 배경 템플릿 이미지
+    if (this.state.label.bg) {
+      const bgImg = this.getImage(this.state.label.bg);
+      if (bgImg) ctx.drawImage(bgImg, lx, ly, LW * s, LH * s);
+    }
 
     // 객체
     ctx.save();
@@ -374,7 +381,7 @@ LB.Editor = class {
       }
 
     } else if (o.type === 'barcode') {
-      const bc = this.barcodeCache.canvas;
+      const bc = this.barcodes.get(o.binding || 'UDI_FULL');
       if (bc) {
         const r = this._fitRect(bc.width, bc.height, X, Y, W, H, o.fit || 'center');
         ctx.imageSmoothingEnabled = false;
