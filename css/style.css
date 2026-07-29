@@ -1,0 +1,87 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: "Malgun Gothic", "맑은 고딕", Arial, sans-serif;
+  font-size: 13px; color: #222; background: #eceff1;
+  overflow: hidden;
+}
+#app { display: flex; height: 100vh; }
+
+/* ---------- 사이드바 ---------- */
+#sidebar {
+  width: 340px; min-width: 340px; height: 100%;
+  background: #fff; border-right: 1px solid #cfd8dc;
+  overflow-y: auto; padding: 12px;
+}
+#sidebar h1 { font-size: 17px; margin-bottom: 10px; color: #1565c0; }
+#sidebar h1 .ver { font-size: 11px; color: #90a4ae; font-weight: normal; }
+.panel {
+  border: 1px solid #e0e0e0; border-radius: 8px;
+  padding: 10px; margin-bottom: 10px; background: #fafafa;
+}
+.panel h2 { font-size: 13px; margin-bottom: 8px; color: #37474f; }
+.row { margin-bottom: 8px; }
+.row label { display: block; font-size: 12px; color: #546e7a; margin-bottom: 3px; }
+.inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.grid2 { display: grid; grid-template-columns: 92px 1fr; gap: 6px 8px; align-items: center; }
+.grid2 label { font-size: 12px; color: #546e7a; }
+input[type=text], input[type=date], input[type=number], select, textarea {
+  width: 100%; padding: 5px 7px; border: 1px solid #b0bec5; border-radius: 5px;
+  font-size: 13px; font-family: inherit; background: #fff;
+}
+input:disabled { background: #f0f0f0; color: #78909c; }
+.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #546e7a; white-space: nowrap; }
+.chk input { width: auto; }
+.hint { font-size: 11px; color: #90a4ae; margin-top: 3px; word-break: break-all; }
+.hint.ok { color: #2e7d32; }
+.hint.err { color: #c62828; }
+
+.btn {
+  padding: 6px 10px; border: 1px solid #b0bec5; border-radius: 6px;
+  background: #fff; cursor: pointer; font-size: 12px; font-family: inherit;
+  white-space: nowrap;
+}
+.btn:hover { background: #eceff1; }
+.btn.primary { background: #1565c0; color: #fff; border-color: #1565c0; }
+.btn.primary:hover { background: #0d47a1; }
+.btn.danger { color: #c62828; border-color: #ef9a9a; }
+.btn.export {
+  width: 100%; padding: 12px; font-size: 15px; font-weight: bold;
+  background: #2e7d32; color: #fff; border-color: #2e7d32;
+}
+.btn.export:hover { background: #1b5e20; }
+.btn.tog.on { background: #1565c0; color: #fff; border-color: #1565c0; }
+
+#tblRef { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+#tblRef td { border-bottom: 1px solid #eee; padding: 3px 4px; vertical-align: top; }
+#tblRef td:first-child { color: #78909c; white-space: nowrap; width: 40%; }
+#tblRef td:last-child { word-break: break-all; }
+
+.udi-box { margin-top: 8px; background: #e8f0fe; border-radius: 6px; padding: 6px 8px; }
+.udi-label { font-size: 11px; color: #1565c0; font-weight: bold; }
+.udi-val { font-size: 11.5px; font-family: "Courier New", monospace; word-break: break-all; }
+
+/* ---------- 메인 ---------- */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#toolbar {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  background: #fff; border-bottom: 1px solid #cfd8dc; padding: 6px 10px;
+}
+.tgroup { display: flex; gap: 5px; align-items: center; }
+.tgroup select { width: auto; }
+.tgroup input[type=number] { width: 62px; }
+.mini { font-size: 11px; color: #78909c; white-space: nowrap; }
+
+#stageWrap { flex: 1; position: relative; overflow: hidden; background: #546e7a; }
+#stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
+
+#propBox {
+  position: absolute; right: 12px; top: 12px; width: 300px;
+  background: rgba(255,255,255,0.97); border: 1px solid #b0bec5; border-radius: 8px;
+  padding: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); font-size: 12px;
+}
+#propBox.hidden { display: none; }
+.prophead { font-weight: bold; color: #37474f; margin-bottom: 6px; }
+.grid4 { display: grid; grid-template-columns: 18px 1fr 18px 1fr; gap: 5px; align-items: center; margin-bottom: 6px; }
+.grid4 label { color: #78909c; }
+#propText { font-family: "Courier New", monospace; font-size: 12px; }

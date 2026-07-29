@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LB Generator — 의료기기 라벨 PDF 생성기</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- ======================= 좌측 패널 ======================= -->
+  <aside id="sidebar">
+    <h1>LB Generator <span class="ver">v1.0</span></h1>
+
+    <!-- 1. DB 파일 로딩 -->
+    <section class="panel" id="panel-db">
+      <h2>1. 라벨 DB 로딩</h2>
+      <div class="row">
+        <button id="btnLoadDb" class="btn primary">DB 파일 열기 (.xlsm/.xlsx/.csv)</button>
+        <input type="file" id="fileDb" accept=".xlsx,.xlsm,.xls,.csv" hidden>
+      </div>
+      <div id="dbStatus" class="hint">DB가 로딩되지 않았습니다. (한 번 로딩하면 브라우저에 저장되어 재사용됩니다)</div>
+      <div class="row">
+        <label>품목 번호 검색</label>
+        <input type="text" id="inpRef" list="refList" placeholder="예: 16-0401" autocomplete="off">
+        <datalist id="refList"></datalist>
+      </div>
+    </section>
+
+    <!-- 2. 사용자 입력 -->
+    <section class="panel" id="panel-input">
+      <h2>2. 사용자 입력</h2>
+      <div class="grid2">
+        <label>LOT</label><input type="text" id="inpLot" placeholder="예: 26041086">
+        <label>SN</label><input type="text" id="inpSn" placeholder="예: 0 (없으면 비움)">
+        <label>MFG (제조일)</label><input type="date" id="inpMfg">
+        <label>유효기간(개월)</label><input type="number" id="inpMonths" value="36" min="1" max="120">
+        <label>EXP (유효일)</label>
+        <div class="inline">
+          <input type="date" id="inpExp" disabled>
+          <label class="chk"><input type="checkbox" id="chkExpAuto" checked> 자동</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. DB 참조 값 -->
+    <section class="panel" id="panel-refvals">
+      <h2>3. DB 참조 값</h2>
+      <table id="tblRef">
+        <tbody></tbody>
+      </table>
+      <div class="udi-box">
+        <div class="udi-label">UDI (GS1 Full)</div>
+        <div id="udiFull" class="udi-val">-</div>
+      </div>
+    </section>
+
+    <!-- 4. 설정 -->
+    <section class="panel" id="panel-settings">
+      <h2>4. 설정</h2>
+      <div class="row">
+        <label>이미지 폴더 (네트워크 경로 가능)</label>
+        <div class="inline">
+          <button id="btnImgDir" class="btn">폴더 선택</button>
+          <span id="imgDirName" class="hint">미지정</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>PDF 저장 폴더</label>
+        <div class="inline">
+          <button id="btnOutDir" class="btn">폴더 선택</button>
+          <span id="outDirName" class="hint">미지정 (미지정 시 다운로드)</span>
+        </div>
+      </div>
+      <div class="row">
+        <label>파일명 규칙 <span class="hint">{ITEM} {REF} {LOT} {SN} {MFG} {EXP} {EXP6} {DATE} {TIME} {PRODUCT} {W} {H}</span></label>
+        <input type="text" id="inpPattern" value="{ITEM}_{LOT}_{DATE}">
+      </div>
+      <div class="grid2">
+        <label>라벨 가로 (mm)</label><input type="number" id="inpLabelW" value="100" min="10" max="500" step="0.5">
+        <label>라벨 세로 (mm)</label><input type="number" id="inpLabelH" value="70" min="10" max="500" step="0.5">
+        <label>출력 해상도 (DPI)</label>
+        <select id="selDpi">
+          <option value="300">300</option>
+          <option value="600" selected>600</option>
+          <option value="1200">1200</option>
+        </select>
+        <label>배경 제거 허용치</label><input type="number" id="inpTol" value="30" min="0" max="120">
+      </div>
+      <label class="chk"><input type="checkbox" id="chkAutoTransparent" checked> JPG/불투명 PNG 배경 자동 투명화</label>
+    </section>
+
+    <!-- 5. 출력 -->
+    <section class="panel" id="panel-export">
+      <button id="btnExport" class="btn export">PDF 출력</button>
+      <div id="exportStatus" class="hint"></div>
+    </section>
+
+    <!-- 템플릿 -->
+    <section class="panel">
+      <h2>템플릿</h2>
+      <div class="inline">
+        <button id="btnTplDefault" class="btn">기본 템플릿</button>
+        <button id="btnTplExport" class="btn">내보내기</button>
+        <button id="btnTplImport" class="btn">가져오기</button>
+        <input type="file" id="fileTpl" accept=".json" hidden>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ======================= 우측 편집 영역 ======================= -->
+  <main id="main">
+    <div id="toolbar">
+      <div class="tgroup">
+        <button id="btnAddText" class="btn" title="텍스트 추가">＋텍스트</button>
+        <button id="btnAddSlot" class="btn" title="이미지 슬롯 추가">＋이미지 슬롯</button>
+        <button id="btnAddBarcode" class="btn" title="DataMatrix 추가">＋DataMatrix</button>
+        <button id="btnAddImage" class="btn" title="이미지 파일 직접 추가">＋이미지 파일</button>
+        <input type="file" id="fileImg" accept="image/*" hidden>
+        <button id="btnDelete" class="btn danger" title="선택 삭제 (Delete)">삭제</button>
+        <button id="btnFront" class="btn" title="맨 앞으로">앞</button>
+        <button id="btnBack" class="btn" title="맨 뒤로">뒤</button>
+      </div>
+      <div class="tgroup" id="fontGroup">
+        <select id="selFont">
+          <option>Arial</option>
+          <option>Helvetica</option>
+          <option>Times New Roman</option>
+          <option>Courier New</option>
+          <option>Tahoma</option>
+          <option>Verdana</option>
+          <option value="Malgun Gothic">맑은 고딕</option>
+          <option value="Batang">바탕</option>
+          <option value="Gulim">굴림</option>
+        </select>
+        <input type="number" id="inpFontSize" value="8" min="2" max="72" step="0.5" title="크기(pt)">
+        <button id="btnBold" class="btn tog" title="굵게"><b>B</b></button>
+        <button id="btnItalic" class="btn tog" title="기울임"><i>I</i></button>
+        <label class="mini">자간</label>
+        <input type="number" id="inpSpacing" value="0" min="-5" max="20" step="0.1" title="자간(pt)">
+        <select id="selAlign" title="문단 정렬">
+          <option value="left">좌</option>
+          <option value="center">중앙</option>
+          <option value="right">우</option>
+        </select>
+      </div>
+      <div class="tgroup">
+        <label class="mini">객체 정렬</label>
+        <select id="selFit" title="슬롯 내 정렬 (종횡비 고정)">
+          <option value="left">좌측</option>
+          <option value="center" selected>중앙</option>
+          <option value="right">우측</option>
+        </select>
+        <button id="btnZoomFit" class="btn" title="화면 맞춤 (Ctrl+0)">맞춤</button>
+        <span id="zoomInfo" class="mini"></span>
+      </div>
+    </div>
+
+    <div id="stageWrap">
+      <canvas id="stage"></canvas>
+      <!-- 선택 객체 속성 -->
+      <div id="propBox" class="hidden">
+        <div class="prophead" id="propTitle">객체</div>
+        <div class="grid4">
+          <label>X</label><input type="number" id="propX" step="0.1">
+          <label>Y</label><input type="number" id="propY" step="0.1">
+          <label>W</label><input type="number" id="propW" step="0.1">
+          <label>H</label><input type="number" id="propH" step="0.1">
+        </div>
+        <div id="propTextWrap">
+          <label class="mini">내용 (플레이스홀더: {LOT} {SN} {MFG} {EXP} {REF} {PRODUCT} {MDR} {UDI_L1} {UDI_L2} {@열문자} 등)</label>
+          <textarea id="propText" rows="3"></textarea>
+        </div>
+        <div id="propSrcWrap">
+          <label class="mini">이미지 소스 (DB 필드)</label>
+          <select id="propSource">
+            <option value="">(수동 파일)</option>
+            <option value="IMG_NAME1">제품명 한줄 그림 (J)</option>
+            <option value="IMG_NAME2">제품명 두줄 그림 (K)</option>
+            <option value="IMG_STENT">Stent Picture (O)</option>
+            <option value="IMG_DELIVERY">Delivery Picture (P)</option>
+            <option value="IMG_AM">STENT OD 그림 (AM)</option>
+            <option value="IMG_AP">CI 그림 (AP)</option>
+          </select>
+          <div class="hint" id="propFileName"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="libs/xlsx.full.min.js"></script>
+<script src="libs/bwip-js-min.js"></script>
+<script src="libs/jspdf.umd.min.js"></script>
+<script src="js/store.js"></script>
+<script src="js/imaging.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/exporter.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
