@@ -41,6 +41,25 @@ LB.settings = (() => {
       autoTransparent: true,
       tolerance: 30,
     },
+    template: {
+      preset: 'PMFL-001',      // 처음 시작할 때 쓸 라벨 규격 (라벨 1장 크기)
+    },
+    /* 용지 배치 — 기본은 '라벨 실물 크기'. A4·A3는 선택 사항이다. */
+    layout: {
+      paper: 'label',
+      customW: 210, customH: 297,
+      orientation: 'auto',
+      marginMm: 8,
+      gapX: 3, gapY: 3,
+      align: 'center',
+      cropMarks: false,
+      outline: false,
+      repeat: 'fill',
+    },
+    data: {
+      fieldMap: {},            // 필드 → DB 열 (기본값과 다른 것만 저장)
+      keyCol: 'H',             // 품목코드를 찾을 열
+    },
     textDefaults: {
       font: 'Arial', sizePt: 8, letterSpacing: 0, lineHeight: 1.15, hScale: 100,
       align: 'left', vAlign: 'top', autoShrink: false, color: '#000000',
@@ -62,7 +81,7 @@ LB.settings = (() => {
     },
     ui: {
       theme: 'system',         // 'system' | 'light' | 'dark'
-      linkMode: 'selection',   // 'off' | 'selection' | 'all'
+      linkMode: 'on',          // 'on' | 'off' — 선택한 객체 하나만 표시
       showRulers: true,
       showGrid: false,
       gridMm: 5,

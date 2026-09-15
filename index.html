@@ -88,7 +88,10 @@
 
     <!-- 2. DB 참조값 -->
     <section class="gbox" id="gboxRef">
-      <div class="legend">DB 참조값</div>
+      <div class="legend">DB 참조값
+        <button id="btnMapData" class="btn xs ghost" style="float:right;margin-top:-2px"
+                title="라벨DB를 별도 창에 펼쳐 놓고, 각 항목이 읽을 열 번호를 직접 지정합니다">열 매칭…</button>
+      </div>
       <table class="kvtable"><tbody id="tblRef"></tbody></table>
       <div class="udi-box">
         <div class="lbl">UDI (GS1)</div>
@@ -111,6 +114,12 @@
       </select>
       <button id="btnPrinterSetup" class="btn sm ghost icon" title="프린터 설정">🖨</button>
     </div>
+    <div class="row" style="margin-bottom:6px">
+      <span class="mini">인쇄 크기</span>
+      <select id="selPaper" style="flex:1" title="기본은 라벨 실물 크기입니다. A4·A3는 여러 장을 한 장에 앉혀 찍을 때만 고르세요."></select>
+      <button id="btnPaperSetup" class="btn sm ghost icon" title="용지 배치 설정">▦</button>
+    </div>
+    <div class="hint" id="printLayoutHint" style="margin:-2px 0 7px;text-align:center"></div>
     <button id="btnPrint" class="btn primary lg block" title="지금 입력한 값으로 1장 출력 (Ctrl+P)">이 라벨 1장 출력</button>
     <button id="btnPrintQueue" class="btn lg block" style="margin-top:6px" hidden
             title="큐에 쌓인 행을 모두 출력 (Ctrl+Shift+P)">큐 0장 출력</button>
@@ -150,7 +159,7 @@
         <button id="btnSnap" class="btn sm on" title="맞춤 안내선 (스냅)">스냅</button>
         <button id="btnGrid" class="btn sm" title="격자 표시">격자</button>
         <button id="btnRuler" class="btn sm on" title="눈금자">눈금</button>
-        <button id="btnLink" class="btn sm" title="같은 데이터를 쓰는 객체를 색으로 묶어 보여줍니다">링크 보기</button>
+        <button id="btnLink" class="btn sm" title="켜 두고 객체를 하나 고르면, 같은 값을 쓰는 다른 자리들이 함께 표시됩니다">링크 보기</button>
       </div>
 
       <div class="tgrp">
@@ -160,12 +169,14 @@
         <button id="btnZoomFit" class="btn sm" title="화면 맞춤 (Ctrl+0)">맞춤</button>
       </div>
 
-      <div class="tgrp">
-        <label class="mini" for="inpLabelW">용지</label>
-        <input type="number" id="inpLabelW" value="297" min="5" max="2000" step="0.5" title="가로(mm)">
+      <div class="tgrp" id="tgrpSize">
+        <label class="mini" for="selLabelPreset">라벨</label>
+        <select id="selLabelPreset" style="width:auto;min-width:150px" title="라벨 규격을 고르면 크기가 자동으로 맞춰집니다"></select>
+        <input type="number" id="inpLabelW" value="173.8" min="5" max="2000" step="0.1" title="가로(mm)">
         <span class="mini">×</span>
-        <input type="number" id="inpLabelH" value="420" min="5" max="2000" step="0.5" title="세로(mm)">
+        <input type="number" id="inpLabelH" value="26.3" min="5" max="2000" step="0.1" title="세로(mm)">
         <span class="mini">mm</span>
+        <button id="btnExtract" class="btn sm" title="A3 원판 서식에서 라벨 한 장만 떼어내 독립 서식으로 만듭니다">원판에서 떼기…</button>
       </div>
     </div>
 
@@ -222,6 +233,8 @@
               <select id="selPlaceholder" style="flex:1" title="플레이스홀더 삽입"></select>
               <button id="btnInsertPh" class="btn sm">삽입</button>
             </div>
+            <button id="btnPickColText" class="btn sm block ghost" style="margin-top:4px"
+                    title="라벨DB를 별도 창에서 펼쳐 보고, 넣을 열을 직접 고릅니다">DB 열 직접 고르기…</button>
             <div class="hint" id="propTextPreview" style="margin-top:5px"></div>
           </section>
 
@@ -296,7 +309,9 @@
         <section class="gbox" id="propLinkWrap" hidden>
           <div class="legend">데이터 링크 <span class="sub" id="linkSummary"></span></div>
           <div id="linkList"></div>
-          <div class="hint" style="margin-top:5px">같은 데이터를 쓰는 객체는 캔버스에서 주황 점선으로 함께 표시됩니다.</div>
+          <div class="hint" style="margin-top:5px">[링크 보기] 를 켜고 객체를 하나 고르면, 같은 값을 쓰는 자리가 캔버스에 함께 표시됩니다.</div>
+          <button id="btnLinkMap" class="btn sm block ghost" style="margin-top:6px"
+                  title="라벨DB를 별도 창에 펼쳐 놓고 각 항목이 읽을 열을 지정합니다">데이터 매칭 편집…</button>
         </section>
 
         <!-- 이미지 -->
@@ -305,7 +320,9 @@
             <div class="legend">이미지 소스</div>
             <select id="propSource"></select>
             <div class="hint" id="propFileName" style="margin-top:5px"></div>
-            <button id="btnPickImgFile" class="btn sm block" style="margin-top:6px">파일 직접 지정…</button>
+            <button id="btnPickColImg" class="btn sm block ghost" style="margin-top:6px"
+                    title="파일명이 들어 있는 DB 열을 별도 창에서 직접 고릅니다">DB 열 직접 고르기…</button>
+            <button id="btnPickImgFile" class="btn sm block" style="margin-top:4px">파일 직접 지정…</button>
           </section>
           <section class="gbox">
             <div class="legend">맞춤</div>
@@ -345,6 +362,8 @@
             <div id="bcFieldWrap"><select id="selBcBinding"></select></div>
             <div id="bcExprWrap" hidden>
               <textarea id="inpBcExpr" rows="2" class="mono" placeholder="(01){GTIN}(10){LOT}"></textarea>
+              <button id="btnPickColBc" class="btn sm block ghost" style="margin-top:4px"
+                      title="라벨DB를 별도 창에서 펼쳐 보고, 넣을 열을 직접 고릅니다">DB 열 직접 고르기…</button>
             </div>
             <div id="bcObjWrap" hidden><select id="selBcLink"></select></div>
             <div class="hint mono" id="bcPreview" style="margin-top:6px;word-break:break-all"></div>
@@ -475,8 +494,11 @@
 <script src="js/barcode.js"></script>
 <script src="js/link.js"></script>
 <script src="js/imaging.js"></script>
+<script src="js/paper.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/extract.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/mapper.js"></script>
 <script src="js/inspector.js"></script>
 <script src="js/exporter.js"></script>
 <script src="js/batch.js"></script>

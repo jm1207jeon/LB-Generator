@@ -11,9 +11,12 @@ window.LB = window.LB || {};
 LB.data = (() => {
   'use strict';
 
-  /* ---------------- 라벨DB 열 매핑 ---------------- */
-  /* 값: 라벨DB 시트의 열 문자. 엑셀 수식에서 실제로 참조하던 열을 그대로 옮겼다. */
-  const FIELD_COLS = {
+  /* ---------------- 라벨DB 열 매핑 ----------------
+   * 값 = 라벨DB 시트의 열 문자. 엑셀 수식이 참조하던 열을 그대로 옮긴 것이 기본값이다.
+   * DB 양식이 다른 경우 [데이터 매칭 편집기]에서 열을 바꿀 수 있고,
+   * 바뀐 매핑은 설정에 저장되어 다음에도 유지된다.
+   */
+  const DEFAULT_FIELD_COLS = {
     // 식별
     REF: 'L', GTIN: 'AJ', PRODUCT: 'AU', PRODUCT_EN: 'I', MDR: 'BB', REV: 'AK',
     REF_MTW: 'M', REF_CN: 'N',
@@ -31,6 +34,59 @@ LB.data = (() => {
     IMG_NAME1: 'J', IMG_NAME2: 'K', IMG_STENT: 'O', IMG_DELIVERY: 'P',
     IMG_AM: 'AM', IMG_AP: 'AP',
   };
+
+  /* 실제로 쓰이는 매핑 (기본값에서 출발해 사용자 설정으로 덮어쓴다) */
+  const FIELD_COLS = Object.assign({}, DEFAULT_FIELD_COLS);
+
+  /** 사용자 매핑 적용. 값이 빈 문자열이면 그 필드는 사용하지 않는다. */
+  function applyFieldMap(map) {
+    for (const k in FIELD_COLS) delete FIELD_COLS[k];
+    Object.assign(FIELD_COLS, DEFAULT_FIELD_COLS);
+    if (map && typeof map === 'object') {
+      for (const k in map) {
+        if (!(k in DEFAULT_FIELD_COLS)) continue;
+        const v = String(map[k] || '').trim().toUpperCase();
+        FIELD_COLS[k] = v;
+      }
+    }
+    return FIELD_COLS;
+  }
+  /** 기본값과 다른 항목만 (설정 저장용) */
+  function fieldMapDiff() {
+    const out = {};
+    for (const k in DEFAULT_FIELD_COLS) {
+      if (FIELD_COLS[k] !== DEFAULT_FIELD_COLS[k]) out[k] = FIELD_COLS[k];
+    }
+    return out;
+  }
+  function resetFieldMap() { applyFieldMap(null); }
+
+  /* 데이터 매칭 편집기에서 묶어 보여줄 분류 */
+  const FIELD_GROUPS = [
+    { g: '식별', keys: ['REF', 'GTIN', 'PRODUCT', 'PRODUCT_EN', 'MDR', 'REV', 'REF_MTW', 'REF_CN'] },
+    { g: '스텐트 치수', keys: ['STENT_OD', 'STENT_LEN', 'HEAD_OD', 'HEAD_LEN_D', 'HEAD_LEN_P', 'DIM_B'] },
+    { g: '딜리버리 치수', keys: ['GW_INCH', 'GW_MM', 'DD_FR', 'DD_MM', 'DD_LEN'] },
+    { g: '규제 · 문구', keys: ['LIFETIME', 'MDD_LIFE', 'PIC_NOTE', 'COVER', 'MDD_NOTE', 'TERM', 'DEVICE'] },
+    { g: '국가별 인허가', keys: ['KOREA_NO', 'KOREA_NAME', 'JAPAN_NO', 'JAPAN_NAME', 'CHINA_NO', 'CHINA_STD', 'CHINA_NAME', 'UKR', 'DOMESTIC'] },
+    { g: '이미지 파일명', keys: ['IMG_NAME1', 'IMG_NAME2', 'IMG_STENT', 'IMG_DELIVERY', 'IMG_AM', 'IMG_AP'] },
+  ];
+
+  /* ---------------- 열 문자 유틸 ---------------- */
+  /** 0 → 'A', 25 → 'Z', 26 → 'AA' */
+  function colName(i) {
+    let s = '';
+    i = Number(i);
+    while (i >= 0) { s = String.fromCharCode(65 + (i % 26)) + s; i = Math.floor(i / 26) - 1; }
+    return s;
+  }
+  /** 'A' → 0, 'AA' → 26 */
+  function colIndex(name) {
+    const s = String(name || '').trim().toUpperCase();
+    if (!/^[A-Z]+$/.test(s)) return -1;
+    let n = 0;
+    for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n - 1;
+  }
 
   /* 인스펙터/도움말에 보여줄 한국어 이름 */
   const FIELD_LABELS = {
@@ -50,6 +106,11 @@ LB.data = (() => {
   };
 
   const IMAGE_FIELDS = ['IMG_NAME1', 'IMG_NAME2', 'IMG_STENT', 'IMG_DELIVERY', 'IMG_AM', 'IMG_AP'];
+
+  /* 품목번호(조회 키)가 있는 열. 원본 라벨DB는 H열이다. */
+  const KEY = { col: 'H' };
+  function setKeyCol(c) { KEY.col = String(c || 'H').trim().toUpperCase() || 'H'; }
+  function keyCol() { return KEY.col; }
 
   /* ---------------- 날짜 ---------------- */
 
@@ -91,11 +152,12 @@ LB.data = (() => {
    * 시트 이름과 무관하게 **H열(품목번호) 데이터가 가장 많은 시트**를 고른다.
    * @returns {{rows:Array<object>, sheet:string, sheets:Array<{name,count}>}}
    */
-  function parseWorkbook(buf) {
+  function parseWorkbook(buf, opt = {}) {
     if (typeof XLSX === 'undefined') throw new Error('SheetJS 라이브러리를 찾을 수 없습니다.');
+    const key = String(opt.keyCol || KEY.col || 'H').toUpperCase();
     const wb = XLSX.read(buf, { type: 'array', cellDates: false });
     const sheets = [];
-    let best = null, bestRows = null, bestScore = -1;
+    let best = null, bestRows = null, bestHeader = null, bestScore = -1;
 
     for (const name of wb.SheetNames) {
       let rows;
@@ -103,36 +165,49 @@ LB.data = (() => {
         rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 'A', raw: false, defval: '' });
       } catch (_) { continue; }
       if (!rows.length) { sheets.push({ name, count: 0 }); continue; }
-      // 헤더 행 감지: H열에 'Product Number' 류 텍스트가 있으면 첫 줄은 헤더
-      const headerish = /product\s*number|품목\s*번호/i.test(String(rows[0].H || ''));
+      // 머리글 행 감지: 키 열에 'Product Number' 류 텍스트가 있으면 첫 줄은 머리글
+      const headerish = /product\s*number|품목\s*번호|품번/i.test(String(rows[0][key] || ''));
+      const header = headerish ? rows[0] : null;
       const data = rows.slice(headerish ? 1 : 0)
-        .filter(r => r.H != null && String(r.H).trim() !== '');
+        .filter(r => r[key] != null && String(r[key]).trim() !== '');
       sheets.push({ name, count: data.length });
       const score = data.length + (name === '라벨DB' ? 1e9 : 0);
-      if (score > bestScore) { bestScore = score; best = name; bestRows = data; }
+      if (score > bestScore) { bestScore = score; best = name; bestRows = data; bestHeader = header; }
     }
     if (!bestRows || !bestRows.length) {
       const detail = sheets.map(s => `${s.name}(${s.count})`).join(', ');
-      throw new Error(`H열(품목번호)에서 데이터를 찾지 못했습니다. 시트: ${detail || '없음'}`);
+      throw new Error(`${key}열(품목번호)에서 데이터를 찾지 못했습니다. `
+        + `시트: ${detail || '없음'} — 설정 › 데이터 매칭에서 품목번호 열을 바꿀 수 있습니다.`);
     }
-    // 열 문자 키를 정규화(공백 제거) + 문자열화
-    const rows = bestRows.map(r => {
+    const norm = (r) => {
       const o = {};
-      for (const k in r) {
-        const v = r[k];
-        o[k] = v == null ? '' : String(v).trim();
-      }
+      for (const k in r) { const v = r[k]; o[k] = v == null ? '' : String(v).trim(); }
       return o;
-    });
-    return { rows, sheet: best, sheets };
+    };
+    const rows = bestRows.map(norm);
+    // 실제로 값이 있는 마지막 열
+    let maxIdx = 0;
+    for (const r of rows.slice(0, 300)) {
+      for (const k in r) { if (r[k] !== '') maxIdx = Math.max(maxIdx, colIndex(k)); }
+    }
+    if (bestHeader) for (const k in bestHeader) {
+      if (String(bestHeader[k]).trim() !== '') maxIdx = Math.max(maxIdx, colIndex(k));
+    }
+    return {
+      rows, sheet: best, sheets,
+      header: bestHeader ? norm(bestHeader) : null,
+      colCount: maxIdx + 1,
+      keyCol: key,
+    };
   }
 
   /** 품목번호 → 행 인덱스 + 검색용 소문자 캐시 */
-  function buildIndex(rows) {
+  function buildIndex(rows, keyColName) {
+    const KC = String(keyColName || KEY.col || 'H').toUpperCase();
     const byRef = new Map();
     const search = [];
     for (const r of rows) {
-      const key = String(r.H || '').trim();
+      const key = String(r[KC] || '').trim();
       if (!key) continue;
       if (!byRef.has(key)) byRef.set(key, r);
       search.push({
@@ -321,7 +396,8 @@ LB.data = (() => {
   }
 
   return {
-    FIELD_COLS, FIELD_LABELS, IMAGE_FIELDS,
+    FIELD_COLS, DEFAULT_FIELD_COLS, FIELD_LABELS, FIELD_GROUPS, IMAGE_FIELDS,
+    applyFieldMap, fieldMapDiff, resetFieldMap, colName, colIndex, setKeyCol, keyCol,
     parseWorkbook, buildIndex, searchProducts,
     computeFields, resolveText, unresolvedPlaceholders, placeholderList,
     validateRecord, lotHint,

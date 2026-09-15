@@ -219,10 +219,23 @@ LB.inspector = (() => {
     renderLinkPanel(sel);
 
     if (hasImg && !multi) {
-      $('propSource').value = one.sourceField || '';
+      const sf = one.sourceField || '';
+      const srcSel = $('propSource');
+      // {@열} 직접 참조는 고정 목록에 없으므로 임시 항목을 만들어 보여 준다
+      const tmp = srcSel.querySelector('option[data-tmp]');
+      if (tmp) tmp.remove();
+      if (sf.startsWith('@') && !srcSel.querySelector(`option[value="${sf}"]`)) {
+        const o = document.createElement('option');
+        o.value = sf; o.textContent = `DB ${sf.slice(1)}열 (직접 지정)`;
+        o.dataset.tmp = '1';
+        srcSel.appendChild(o);
+      }
+      srcSel.value = sf;
       const fn = $('propFileName');
       if (one.sourceField) {
-        const name = ctx.fields[one.sourceField] || '';
+        const name = (sf.startsWith('@')
+          ? (ctx.row ? ctx.row[sf.slice(1).toUpperCase()] : '')
+          : ctx.fields[sf]) || '';
         if (!name) { fn.textContent = `이 품목에 ${one.sourceField} 파일명이 없습니다.`; fn.className = 'hint warn'; }
         else if (one.dataUrl) { fn.textContent = `✓ ${name}`; fn.className = 'hint ok'; }
         else { fn.textContent = `✕ ${name} — ${one.error || '불러오지 못했습니다'}`; fn.className = 'hint err'; }
@@ -461,15 +474,63 @@ LB.inspector = (() => {
       refreshTree();
     });
     $('propText').addEventListener('change', () => { if (!syncing) ed.commit('내용 변경', () => {}); });
-    $('btnInsertPh').onclick = () => {
-      const t = $('propText');
-      const tok = $('selPlaceholder').value;
-      const s = t.selectionStart || 0, e = t.selectionEnd || 0;
+    $('btnInsertPh').onclick = () => insertToken($('propText'), $('selPlaceholder').value);
+
+    /* 커서 자리에 토큰을 끼워 넣는다 */
+    function insertToken(t, tok) {
+      if (!t || !tok) return;
+      const s = t.selectionStart == null ? t.value.length : t.selectionStart;
+      const e = t.selectionEnd == null ? t.value.length : t.selectionEnd;
       t.value = t.value.slice(0, s) + tok + t.value.slice(e);
       t.selectionStart = t.selectionEnd = s + tok.length;
       t.dispatchEvent(new Event('input'));
       t.focus();
+    }
+
+    /* 라벨DB를 별도 창에서 펼쳐 놓고 열을 직접 고른다 */
+    async function pickCol(opt) {
+      if (!LB.mapper.hasSource()) {
+        LB.ui.toast('라벨DB를 먼저 불러오세요.', 'warn');
+        return null;
+      }
+      return LB.mapper.pickColumn(Object.assign({ sampleRow: ctx.row }, opt));
+    }
+
+    $('btnPickColText').onclick = async () => {
+      const r = await pickCol({
+        title: '텍스트에 넣을 DB 열 고르기',
+        hint: '표에서 열을 클릭하면 그 열이 {@열} 형태로 본문에 들어갑니다.',
+      });
+      if (r) insertToken($('propText'), `{@${r.col}}`);
     };
+
+    $('btnPickColBc').onclick = async () => {
+      const r = await pickCol({
+        title: '바코드 데이터에 넣을 DB 열 고르기',
+        hint: '표에서 열을 클릭하면 그 열이 {@열} 형태로 바코드 식에 들어갑니다.',
+      });
+      if (r) insertToken($('inpBcExpr'), `{@${r.col}}`);
+    };
+
+    $('btnPickColImg').onclick = async () => {
+      const sel = ed.selectedObjects();
+      if (sel.length !== 1 || sel[0].type !== 'image') return;
+      const cur = String(sel[0].sourceField || '').startsWith('@') ? sel[0].sourceField.slice(1) : '';
+      const r = await pickCol({
+        title: '그림 파일명이 든 DB 열 고르기',
+        hint: '표에서 열을 클릭하면 그 열의 값을 파일명으로 읽어 그림을 찾습니다.',
+        current: cur,
+      });
+      if (!r) return;
+      ed.commit('이미지 소스 변경', () => {
+        sel[0].sourceField = '@' + r.col;
+        sel[0].fileName = ''; sel[0].dataUrl = ''; sel[0].error = '';
+      });
+      if (ctx.onImageSourceChange) ctx.onImageSourceChange();
+      ctx.onChange(); refresh();
+    };
+
+    $('btnLinkMap').onclick = () => { if (ctx.onOpenMapper) ctx.onOpenMapper(); };
 
     // 글꼴
     $('selFont').addEventListener('change', () => apply('글꼴 변경', o => { o.font = $('selFont').value; }, ['text']));

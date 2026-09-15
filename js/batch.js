@@ -319,7 +319,7 @@ LB.batch = (() => {
 
   /**
    * 큐를 출력한다.
-   * @param {object} ctx {editor, index, objects, label, skipErrors, onProgress, onRow}
+   * @param {object} ctx {editor, index, objects, label, skipErrors, onProgress, onRow, prepareJob}
    */
   async function run(ctx) {
     if (state.running) return { ok: false, error: '이미 실행 중입니다.' };
@@ -369,13 +369,15 @@ LB.batch = (() => {
         if (ctx.onProgress) ctx.onProgress(i, total, r);
         emit();
       },
-      // exportBatch 가 각 job 을 그리기 직전에 부를 훅
-      beforeJob: (job) => {
+      // exportBatch 가 각 job 을 그리기 직전에 부를 훅.
+      // 치환기뿐 아니라 ★그림 슬롯도 이 건의 데이터로 다시 읽어야 한다.
+      beforeJob: async (job) => {
         editor.resolver = (t) => LB.data.resolveText(t, job.fields, job.row);
         editor.barcodeCtx = () => ({
           fields: job.fields, objects: ctx.objects,
           resolveText: (t) => LB.data.resolveText(t, job.fields, job.row),
         });
+        if (ctx.prepareJob) await ctx.prepareJob(job);
       },
     });
 

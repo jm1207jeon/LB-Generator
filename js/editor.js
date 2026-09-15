@@ -36,7 +36,7 @@ LB.Editor = class {
     this.snapEnabled = true;
     this.snapPx = 6;
     this.previewMode = false;   // true면 편집 보조선을 감추고 인쇄될 모습만 그린다
-    this.linkMode = 'selection'; // 'off' | 'selection' | 'all' — 데이터 링크 표시
+    this.linkMode = 'on';        // 'on' | 'off' — 데이터 링크 표시 (한 번에 한 객체)
     this.issues = new Map();            // objectId -> [{level,msg}]
     this._bgCache = null;
     this._undo = [];
@@ -1019,7 +1019,12 @@ LB.Editor = class {
       const s = String(this.resolver(o.text || '')).replace(/\s+/g, ' ').trim();
       return s ? (s.length > 26 ? s.slice(0, 26) + '…' : s) : '(빈 텍스트)';
     }
-    if (o.type === 'image') return o.sourceField ? `이미지 · ${o.sourceField}` : (o.fileName || '이미지');
+    if (o.type === 'image') {
+      if (!o.sourceField) return o.fileName || '이미지';
+      return String(o.sourceField).startsWith('@')
+        ? `이미지 · DB ${o.sourceField.slice(1)}열`
+        : `이미지 · ${o.sourceField}`;
+    }
     if (o.type === 'barcode') return LB.barcode.byId(o.symbology).n;
     return o.type;
   }

@@ -4,10 +4,11 @@
  * 어떤 객체가 어떤 데이터에 묶여 있는지 눈으로 바로 확인할 수 있어야
  * "한 곳만 고치고 다른 곳을 빠뜨리는" 실수를 막을 수 있다.
  *
- * 세 가지 방식으로 보여준다.
- *   1) 선택 연동  — 객체를 고르면 같은 데이터를 쓰는 객체가 함께 강조된다.
- *   2) 링크 보기  — 전체를 데이터별 색으로 칠해 한눈에 묶음을 본다.
- *   3) 직접 링크  — 바코드가 특정 객체의 텍스트를 참조하면 둘을 선으로 잇는다.
+ * 표시 규칙 — 화면이 어지러워지지 않도록 최소한으로만 그린다.
+ *   · 링크 표시가 켜져 있고
+ *   · 객체를 **정확히 하나** 선택했을 때만
+ *   그 객체와 같은 값을 쓰는 객체들을 주황 테두리로 표시한다.
+ *   여러 개를 선택하거나 아무것도 선택하지 않으면 아무 것도 그리지 않는다.
  */
 window.LB = window.LB || {};
 
@@ -115,84 +116,43 @@ LB.link = (() => {
   }
 
   /**
-   * 편집기에 링크 오버레이를 그린다.
-   * @param ctx    캔버스 컨텍스트
-   * @param ed     LB.Editor
-   * @param mode   'selection' | 'all' | 'off'
+   * 링크 오버레이. 선택이 정확히 하나일 때만 그린다.
+   * @param mode 'on' | 'off'
    */
   function draw(ctx, ed, mode) {
-    if (!mode || mode === 'off') return;
+    if (mode === 'off' || mode === false) return;
+    if (ed.selection.size !== 1) return;                 // 하나만 골랐을 때만
+
     const objs = ed.state.objects;
+    const selId = [...ed.selection][0];
+    const self = objs.find(o => o.id === selId);
+    if (!self) return;
+
+    const { ids, tokens } = related(objs, [selId]);
+    const direct = directLinks(objs).filter(l => l.from === selId || l.to === selId);
+    if (!ids.size && !direct.length) return;
+
     const s = ed.view.scale, ox = ed.view.ox, oy = ed.view.oy;
     const rect = (o) => ({ x: o.x * s + ox, y: o.y * s + oy, w: o.w * s, h: o.h * s });
     const byId = new Map(objs.map(o => [o.id, o]));
+    const ACC = '#E67E00';
 
     ctx.save();
-    ctx.lineJoin = 'round';
 
-    if (mode === 'all') {
-      // 반복되는 값마다 색을 달리해 테두리를 칠한다
-      const reps = repeatedGroups(objs);
-      for (const [token, ids] of reps) {
-        const col = colorOf(token);
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([]);
-        for (const id of ids) {
-          const o = byId.get(id);
-          if (!o || o.visible === false) continue;
-          const r = rect(o);
-          ctx.strokeRect(Math.round(r.x) - 1.5, Math.round(r.y) - 1.5, r.w + 3, r.h + 3);
-        }
-        // 그룹 첫 객체에 이름표
-        const first = byId.get(ids[0]);
-        if (first && s > 2) {
-          const r = rect(first);
-          const txt = labelOf(token) + ` ×${ids.length}`;
-          ctx.font = '10px sans-serif';
-          const w = ctx.measureText(txt).width + 8;
-          ctx.fillStyle = col;
-          ctx.fillRect(r.x - 1.5, r.y - 15, w, 13);
-          ctx.fillStyle = '#fff';
-          ctx.fillText(txt, r.x + 2.5, r.y - 5);
-        }
-      }
-    } else {
-      // 선택 연동: 같은 데이터를 쓰는 객체를 주황 테두리로
-      const { ids, tokens } = related(objs, [...ed.selection]);
-      if (!ids.size) { ctx.restore(); return; }
-      ctx.strokeStyle = '#E67E00';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 3]);
-      for (const id of ids) {
-        const o = byId.get(id);
-        if (!o) continue;
-        const r = rect(o);
-        ctx.strokeRect(Math.round(r.x) - 2.5, Math.round(r.y) - 2.5, r.w + 5, r.h + 5);
-      }
-      ctx.setLineDash([]);
-      // 선택 객체 중심에서 연관 객체로 가는 가는 연결선
-      const selObjs = [...ed.selection].map(id => byId.get(id)).filter(Boolean);
-      if (selObjs.length === 1 && ids.size <= 24) {
-        const a = rect(selObjs[0]);
-        const ax = a.x + a.w / 2, ay = a.y + a.h / 2;
-        ctx.strokeStyle = 'rgba(230,126,0,.45)';
-        ctx.lineWidth = 1;
-        for (const id of ids) {
-          const o = byId.get(id);
-          const r = rect(o);
-          ctx.beginPath();
-          ctx.moveTo(ax, ay);
-          ctx.lineTo(r.x + r.w / 2, r.y + r.h / 2);
-          ctx.stroke();
-        }
-      }
+    // 같은 값을 쓰는 객체 — 은은한 채움 + 실선 테두리
+    for (const id of ids) {
+      const o = byId.get(id);
+      if (!o || o.visible === false) continue;
+      const r = rect(o);
+      ctx.fillStyle = 'rgba(230,126,0,.10)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.strokeStyle = ACC;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(Math.round(r.x) - 1.5, Math.round(r.y) - 1.5, r.w + 3, r.h + 3);
     }
 
-    // 직접 링크(바코드 → 객체)는 항상 화살표로
-    const sel = ed.selection;
-    for (const l of directLinks(objs)) {
-      if (mode === 'selection' && !sel.has(l.from) && !sel.has(l.to)) continue;
+    // 바코드 ↔ 객체 직접 참조는 화살표 하나로
+    for (const l of direct) {
       const a = byId.get(l.from), b2 = byId.get(l.to);
       if (!a || !b2 || a.visible === false || b2.visible === false) continue;
       const ra = rect(a), rb = rect(b2);
@@ -200,19 +160,43 @@ LB.link = (() => {
       const bx = rb.x + rb.w / 2, by = rb.y + rb.h / 2;
       ctx.strokeStyle = '#9C27B0';
       ctx.lineWidth = 1.6;
-      ctx.setLineDash([4, 2]);
+      ctx.setLineDash([5, 3]);
       ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ax, ay); ctx.stroke();
       ctx.setLineDash([]);
-      // 화살촉 (대상 → 바코드 방향)
       const ang = Math.atan2(ay - by, ax - bx);
       ctx.fillStyle = '#9C27B0';
       ctx.beginPath();
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - 9 * Math.cos(ang - 0.4), ay - 9 * Math.sin(ang - 0.4));
-      ctx.lineTo(ax - 9 * Math.cos(ang + 0.4), ay - 9 * Math.sin(ang + 0.4));
+      ctx.lineTo(ax - 10 * Math.cos(ang - 0.4), ay - 10 * Math.sin(ang - 0.4));
+      ctx.lineTo(ax - 10 * Math.cos(ang + 0.4), ay - 10 * Math.sin(ang + 0.4));
       ctx.closePath(); ctx.fill();
     }
+
+    // 선택 객체 위에 이름표 하나만 — "LOT · 11곳"
+    if (tokens.size) {
+      const t = [...tokens][0];
+      const label = shortLabel(t) + ' · ' + (ids.size + 1) + '곳'
+        + (tokens.size > 1 ? ` 외 ${tokens.size - 1}종` : '');
+      const r = rect(self);
+      ctx.font = '11px "Noto Sans KR", sans-serif';
+      const w = ctx.measureText(label).width + 12;
+      const bx = Math.min(Math.max(4, r.x), ctx.canvas.width - w - 4);
+      const by = r.y - 20 < 4 ? r.y + r.h + 4 : r.y - 20;
+      ctx.fillStyle = ACC;
+      if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, by, w, 17, 4); ctx.fill(); }
+      else ctx.fillRect(bx, by, w, 17);
+      ctx.fillStyle = '#fff';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, bx + 6, by + 9);
+    }
     ctx.restore();
+  }
+
+  /** 이름표에 쓸 짧은 이름 */
+  function shortLabel(token) {
+    const t = String(token);
+    if (t.startsWith('@')) return t.slice(1) + '열';
+    return LB.data.FIELD_LABELS[t] || t;
   }
 
   /** 인스펙터용: 이 객체가 쓰는 데이터와, 같은 데이터를 쓰는 다른 객체 */
@@ -231,5 +215,5 @@ LB.link = (() => {
     return out;
   }
 
-  return { tokensOf, groups, repeatedGroups, directLinks, related, colorOf, labelOf, draw, summary };
+  return { tokensOf, groups, repeatedGroups, directLinks, related, colorOf, labelOf, shortLabel, draw, summary };
 })();

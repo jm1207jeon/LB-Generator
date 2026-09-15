@@ -61,7 +61,9 @@ LB.exporter = (() => {
         }
       } else if (o.type === 'image') {
         if (o.sourceField && !o.dataUrl) {
-          const fn = fields[o.sourceField];
+          const fn = String(o.sourceField).startsWith('@')
+            ? (row ? row[o.sourceField.slice(1).toUpperCase()] : '')
+            : fields[o.sourceField];
           if (!fn) {
             if (rules.warnMissingImage !== false) {
               add('warn', 'IMG_NO_NAME', `"${name}" 슬롯: 이 품목의 ${o.sourceField} 파일명이 라벨DB에 없습니다.`, o.id);
@@ -173,6 +175,45 @@ LB.exporter = (() => {
     return { fmt: f.fmt, data: f.fmt === 'PNG' ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', f.q) };
   }
 
+  /* ================= 용지 배치(면付) =================
+   * 라벨은 언제나 실물 크기로 그리고, 용지 모드일 때만
+   * 그 결과를 용지 캔버스의 각 칸에 합성한다.
+   */
+
+  /** 라벨 한 장을 그려 캔버스로 (합성용) */
+  function renderLabelTile(editor, { objects, label, dpi, includeBg }) {
+    return renderToCanvas(editor, { objects, label, dpi, includeBg });
+  }
+
+  /**
+   * 용지 한 페이지를 만든다.
+   * @param slots [{tile:HTMLCanvasElement}] 페이지에 앉힐 라벨들 (최대 perPage개)
+   */
+  function composeSheet(slots, planObj, label, dpi, opt = {}) {
+    const pxPerMm = dpi / 25.4;
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(planObj.paperW * pxPerMm));
+    cv.height = Math.max(1, Math.round(planObj.paperH * pxPerMm));
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    for (let i = 0; i < slots.length && i < planObj.perPage; i++) {
+      const s = LB.paper.slotAt(planObj, i);
+      const x = Math.round(s.x * pxPerMm), y = Math.round(s.y * pxPerMm);
+      const w = Math.round(label.w * pxPerMm), h = Math.round(label.h * pxPerMm);
+      if (slots[i] && slots[i].tile) ctx.drawImage(slots[i].tile, x, y, w, h);
+      if (opt.outline) {
+        ctx.save();
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = Math.max(1, 0.15 * pxPerMm);
+        ctx.strokeRect(x + .5, y + .5, w, h);
+        ctx.restore();
+      }
+      if (opt.cropMarks) LB.paper.drawCropMarks(ctx, planObj, i, label, pxPerMm);
+    }
+    return cv;
+  }
+
   function newPdf(LW, LH) {
     const { jsPDF } = window.jspdf;
     return new jsPDF({
@@ -213,9 +254,47 @@ LB.exporter = (() => {
   /* ================= 단일 출력 ================= */
 
   /**
+   * 용지 모드 단일 출력 — 한 페이지를 같은 라벨로 채우거나(fill) 1장만 앉힌다.
+   */
+  async function exportOneOnPaper(editor, opt, layout) {
+    const S = LB.settings;
+    const { objects, label, fields, row, pattern, conflict } = opt;
+    const dpi = opt.dpi || S.value('output.dpi', 300);
+    const includeBg = opt.includeBg !== undefined ? opt.includeBg : S.value('output.includeBg', true);
+    const planObj = LB.paper.plan(label, layout);
+    if (!planObj.fits) throw new Error(planObj.reason);
+
+    if (opt.beforeJob) await opt.beforeJob(opt);
+    await ensureImages(editor, objects, label);
+    const eff = effectiveDpi({ w: planObj.paperW, h: planObj.paperH }, dpi);
+    const tile = renderLabelTile(editor, { objects, label, dpi: eff.dpi, includeBg });
+    const count = layout.repeat === 'one' ? 1 : planObj.perPage;
+    const slots = Array.from({ length: count }, () => ({ tile }));
+    const sheet = composeSheet(slots, planObj, label, eff.dpi, layout);
+    tile.width = tile.height = 1;
+
+    const enc = encode(sheet);
+    const pdf = newPdf(planObj.paperW, planObj.paperH);
+    pdf.addImage(enc.data, enc.fmt, 0, 0, planObj.paperW, planObj.paperH, undefined, 'FAST');
+    const blob = pdf.output('blob');
+    sheet.width = sheet.height = 1;
+
+    const fileName = buildFileName(pattern || S.value('output.pattern'), fields, label, row);
+    const written = await S.writeOutput(blob, fileName, conflict);
+    const meta = { dpi: eff.dpi, format: enc.fmt, perPage: count, paper: `${planObj.paperW}×${planObj.paperH}mm` };
+    if (written) return Object.assign({ ok: true, fileName: written.fileName, saved: 'folder', bytes: blob.size }, meta);
+    download(blob, fileName);
+    return Object.assign({ ok: true, fileName, saved: 'download', bytes: blob.size }, meta);
+  }
+
+  /**
    * @returns {{ok, fileName, saved:'folder'|'download', bytes}}
    */
   async function exportOne(editor, opt) {
+    const layout = opt.layout || LB.settings.value('layout', LB.paper.DEFAULT_LAYOUT);
+    if (layout && layout.paper && layout.paper !== 'label') {
+      return exportOneOnPaper(editor, opt, layout);
+    }
     const {
       objects = editor.state.objects, label = editor.state.label,
       fields = {}, row = null, dpi, includeBg, pattern, conflict,
@@ -224,7 +303,7 @@ LB.exporter = (() => {
     const useDpi = dpi || S.value('output.dpi', 600);
     const useBg = includeBg !== undefined ? includeBg : S.value('output.includeBg', true);
 
-    if (opt.beforeJob) opt.beforeJob(opt);
+    if (opt.beforeJob) await opt.beforeJob(opt);
     await ensureImages(editor, objects, label);
     const eff = effectiveDpi(label, useDpi);
     const cv = renderToCanvas(editor, { objects, label, dpi: eff.dpi, includeBg: useBg });
@@ -253,8 +332,87 @@ LB.exporter = (() => {
    *                       onProgress(i,total,job,result), shouldCancel(), isPaused()}
    * @returns {{done:number, failed:number, results:Array, cancelled:boolean, fileName?:string}}
    */
+  /**
+   * 용지 모드 연속 출력 — 큐의 여러 건을 한 용지에 차례로 앉히고,
+   * 칸이 차면 다음 페이지로 넘긴다. 결과는 언제나 한 PDF다.
+   */
+  async function exportBatchOnPaper(editor, jobs, opt, layout) {
+    const S = LB.settings;
+    const label = editor.state.label;
+    const dpi = opt.dpi || S.value('output.dpi', 300);
+    const includeBg = opt.includeBg !== undefined ? opt.includeBg : S.value('output.includeBg', true);
+    const planObj = LB.paper.plan(label, layout);
+    if (!planObj.fits) throw new Error(planObj.reason);
+
+    const eff = effectiveDpi({ w: planObj.paperW, h: planObj.paperH }, dpi);
+    const expanded = [];
+    for (const j of jobs) {
+      const c = Math.max(1, j.copies || 1);
+      for (let i = 0; i < c; i++) expanded.push(j);
+    }
+    const total = expanded.length;
+    let pdf = null, pages = 0, cancelled = false, done = 0, failed = 0;
+    const results = [];
+    let slots = [];
+
+    const flush = () => {
+      if (!slots.length) return;
+      const sheet = composeSheet(slots, planObj, label, eff.dpi, layout);
+      if (!pdf) pdf = newPdf(planObj.paperW, planObj.paperH);
+      else pdf.addPage([planObj.paperW, planObj.paperH], planObj.paperW >= planObj.paperH ? 'landscape' : 'portrait');
+      const enc = encode(sheet);
+      pdf.addImage(enc.data, enc.fmt, 0, 0, planObj.paperW, planObj.paperH, undefined, 'FAST');
+      sheet.width = sheet.height = 1;
+      for (const s of slots) if (s.tile) { s.tile.width = s.tile.height = 1; }
+      slots = [];
+      pages++;
+    };
+
+    for (let i = 0; i < expanded.length; i++) {
+      if (opt.shouldCancel && opt.shouldCancel()) { cancelled = true; break; }
+      while (opt.isPaused && opt.isPaused()) {
+        await sleep(120);
+        if (opt.shouldCancel && opt.shouldCancel()) { cancelled = true; break; }
+      }
+      if (cancelled) break;
+      const job = expanded[i];
+      try {
+        if (opt.beforeJob) await opt.beforeJob(job);
+        LB.text.invalidate();
+        const objects = job.objects || editor.state.objects;
+        await ensureImages(editor, objects, label);
+        const tile = renderLabelTile(editor, { objects, label, dpi: eff.dpi, includeBg });
+        slots.push({ tile, job });
+        done++;
+        if (slots.length >= planObj.perPage) flush();
+        if (opt.onProgress) opt.onProgress(i + 1, total, job, { ok: true });
+      } catch (e) {
+        failed++;
+        if (opt.onProgress) opt.onProgress(i + 1, total, job, { ok: false, error: e.message });
+      }
+      await sleep(0);
+    }
+    if (!cancelled) flush();
+
+    let fileName = null;
+    if (pdf && pages > 0) {
+      const first = jobs[0] || {};
+      const pat = (opt.pattern || S.value('output.pattern') || '') + `_${pages}쪽`;
+      fileName = buildFileName(pat, first.fields || {}, label, first.row);
+      const blob = pdf.output('blob');
+      const written = await S.writeOutput(blob, fileName, opt.conflict);
+      if (written) fileName = written.fileName;
+      else download(blob, fileName);
+    }
+    return { done, failed, results, cancelled, fileName, pages, perPage: planObj.perPage, onPaper: true };
+  }
+
   async function exportBatch(editor, jobs, opt = {}) {
     const S = LB.settings;
+    const layoutCfg = opt.layout || S.value('layout', LB.paper.DEFAULT_LAYOUT);
+    if (layoutCfg && layoutCfg.paper && layoutCfg.paper !== 'label') {
+      return exportBatchOnPaper(editor, jobs, opt, layoutCfg);
+    }
     const mode = opt.mode || S.value('output.mode', 'separate');
     const dpi = opt.dpi || S.value('output.dpi', 600);
     const includeBg = opt.includeBg !== undefined ? opt.includeBg : S.value('output.includeBg', true);
@@ -282,7 +440,7 @@ LB.exporter = (() => {
       let res;
       try {
         // 이 건의 데이터로 치환기를 바꿔 끼운다 (행마다 LOT/SN/날짜가 다르다)
-        if (opt.beforeJob) opt.beforeJob(job);
+        if (opt.beforeJob) await opt.beforeJob(job);
         LB.text.invalidate();          // 텍스트 레이아웃 캐시는 문자열 기준이므로 안전하지만
                                        // 폰트/치환 결과가 바뀌었을 수 있어 초기화한다
         await ensureImages(editor, objects, label);
@@ -377,5 +535,6 @@ LB.exporter = (() => {
   }
 
   return { preflight, renderToCanvas, buildFileName, exportOne, exportBatch, previewPng,
-           ensureImages, download, effectiveDpi, pickFormat, MAX_PIXELS };
+           ensureImages, download, effectiveDpi, pickFormat, MAX_PIXELS,
+           composeSheet, renderLabelTile, exportOneOnPaper, exportBatchOnPaper };
 })();

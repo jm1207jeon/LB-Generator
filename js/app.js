@@ -102,6 +102,7 @@
   function recompute() {
     row = S.index && S.index.byRef ? S.index.byRef.get(String(S.inputs.item).trim()) || null : null;
     fields = LB.data.computeFields(row, S.inputs);
+    LB.mapper.setSampleRow && LB.mapper.setSampleRow(row);
     if (S.inputs.expAuto) S.inputs.exp = fields.EXP;
   }
 
@@ -130,6 +131,7 @@
       const parsed = LB.data.parseWorkbook(buf);
       applyDb({
         fileName: file.name, sheet: parsed.sheet, count: parsed.rows.length,
+        header: parsed.header, colCount: parsed.colCount, sheets: parsed.sheets,
         loadedAt: new Date().toISOString(), lastModified: file.lastModified,
       }, parsed.rows);
       LB.settings.markDbLoaded(file);
@@ -147,7 +149,15 @@
   function applyDb(meta, rows) {
     S.dbMeta = meta;
     S.rows = rows;
-    S.index = LB.data.buildIndex(rows);
+    S.index = LB.data.buildIndex(rows, LB.data.keyCol());
+    // 데이터 매칭 편집기가 이 DB를 그대로 펼쳐 볼 수 있게 넘겨 준다
+    LB.mapper.setSource({
+      rows, sheet: meta.sheet,
+      header: meta.header || null,
+      colCount: meta.colCount || 55,
+      keyCol: LB.data.keyCol(),
+      sampleRow: row || rows[0] || null,
+    });
     updateChips();
     refresh();
     // 온보딩이 떠 있으면 진행 상태를 반영하고, 다 끝났으면 닫는다
@@ -342,13 +352,36 @@
   }
 
   /* ================= 이미지 슬롯 ================= */
-  async function loadSlotImages(force) {
+  /**
+   * 그림 슬롯(제품 사진 등)을 주어진 데이터 기준으로 다시 읽어 넣는다.
+   *
+   * ★ 연속 출력에서 반드시 행마다 불러야 한다.
+   *   그렇지 않으면 앞 행의 그림이 그대로 남아 전혀 다른 제품의 사진이
+   *   찍힌 라벨이 나간다 — 의료기기 라벨에서는 회수 사유다.
+   *
+   * @param {Array}  objs  대상 객체 배열
+   * @param {object} f     이 건의 필드 값 (computeFields 결과)
+   * @param {boolean} force 캐시가 같아도 다시 읽을지
+   * @returns {Promise<boolean>} 무엇이라도 바뀌었으면 true
+   */
+  /** 그림 슬롯이 가리키는 파일명 (필드 또는 {@열} 직접 참조) */
+  function slotFileName(sourceField, f, rowData) {
+    const sf = String(sourceField || '');
+    if (!sf) return '';
+    if (sf.startsWith('@')) {
+      const col = sf.slice(1).toUpperCase();
+      return rowData ? String(rowData[col] == null ? '' : rowData[col]) : '';
+    }
+    return (f && f[sf]) || '';
+  }
+
+  async function loadSlotImagesInto(objs, f, force, rowData) {
     const tol = LB.settings.value('imaging.tolerance', 30);
     const auto = LB.settings.value('imaging.autoTransparent', true);
     let changed = false;
-    for (const o of S.objects) {
+    for (const o of objs || []) {
       if (o.type !== 'image' || !o.sourceField) continue;
-      const fileName = fields[o.sourceField] || '';
+      const fileName = slotFileName(o.sourceField, f, rowData);
       if (!force && o.fileName === fileName && (o.dataUrl || !fileName)) continue;
       o.fileName = fileName;
       o.error = '';
@@ -369,7 +402,14 @@
       }
       changed = true;
     }
+    return changed;
+  }
+
+  /** 화면에 보이는 현재 작업 건 기준으로 그림 슬롯 갱신 */
+  async function loadSlotImages(force) {
+    const changed = await loadSlotImagesInto(S.objects, fields, force, row);
     if (changed) { ed.render(); renderChecks(); LB.inspector.refresh(); scheduleSave(); }
+    return changed;
   }
 
   /* ================= 저장 / 복원 ================= */
@@ -393,6 +433,9 @@
 
   async function restore() {
     await LB.settings.load();
+    // 사용자가 지정한 DB 열 매칭을 먼저 적용해야 이후 계산이 맞는다
+    LB.data.applyFieldMap(LB.settings.value('data.fieldMap', {}));
+    LB.data.setKeyCol(LB.settings.value('data.keyCol', 'H'));
     applyUiSettings();
 
     const tpl = await LB.store.get('template').catch(() => null);
@@ -402,7 +445,7 @@
       for (const o of tpl.objects) S.objects.push(o);
       S.templateName = tpl.name || S.templateName;
     } else {
-      applyDefaultTemplate(false);
+      await applyDefaultTemplate(false);
     }
     normalizeAll();
 
@@ -436,15 +479,50 @@
     ed && (ed.gridMm = LB.settings.value('ui.gridMm', 5));
     ed && (ed.snapEnabled = LB.settings.value('ui.snap', true));
     ed && (ed.snapPx = LB.settings.value('ui.snapPx', 6));
-    if (ed) ed.linkMode = LB.settings.value('ui.linkMode', 'selection');
+    const lm = LB.settings.value('ui.linkMode', 'on') === 'off' ? 'off' : 'on';
+    if (ed) ed.linkMode = lm;
     const lb = $('btnLink');
-    if (lb) lb.classList.toggle('on', LB.settings.value('ui.linkMode', 'selection') === 'all');
+    if (lb) lb.classList.toggle('on', lm === 'on');
     const tg = $('selTarget');
     if (tg) tg.value = LB.settings.value('output.target', 'pdf');
     $('btnSnap').classList.toggle('on', LB.settings.value('ui.snap', true));
     $('btnGrid').classList.toggle('on', LB.settings.value('ui.showGrid', false));
     $('btnRuler').classList.toggle('on', LB.settings.value('ui.showRulers', true));
     $('selQueueMode').value = LB.settings.value('output.mode', 'separate');
+    syncPaperUi();
+  }
+
+  /* ---- 라벨 규격 프리셋 ---- */
+  function fillLabelPresets() {
+    const sel = $('selLabelPreset');
+    if (!sel || sel.dataset.filled) return;
+    sel.innerHTML = '';
+    for (const g of LB.paper.allLabelPresets()) {
+      const og = document.createElement('optgroup');
+      og.label = g.group;
+      for (const it of g.items) {
+        const o = document.createElement('option');
+        o.value = it.v;
+        o.textContent = `${it.n} — ${it.w}×${it.h}`;
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
+    }
+    const custom = document.createElement('option');
+    custom.value = ''; custom.textContent = '사용자 지정';
+    sel.appendChild(custom);
+    sel.dataset.filled = '1';
+  }
+
+  /** 현재 라벨 치수를 툴바(프리셋 + W/H)에 반영 */
+  function syncLabelSizeUi() {
+    fillLabelPresets();
+    $('inpLabelW').value = Math.round(S.label.w * 10) / 10;
+    $('inpLabelH').value = Math.round(S.label.h * 10) / 10;
+    const m = LB.paper.matchPreset(S.label.w, S.label.h);
+    $('selLabelPreset').value = m ? m.v : '';
+    const pl = $('printLayoutHint');
+    if (pl) pl.textContent = LB.paper.describe(S.label, LB.settings.value('layout', LB.paper.DEFAULT_LAYOUT));
   }
 
   function syncInputsToUi() {
@@ -457,54 +535,126 @@
     $('inpExp').disabled = S.inputs.expAuto !== false;
     $('inpExp').value = S.inputs.exp || '';
     $('inpCopies').value = S.inputs.copies || 1;
-    $('inpLabelW').value = S.label.w;
-    $('inpLabelH').value = S.label.h;
+    syncLabelSizeUi();
   }
 
   /* ================= 템플릿 ================= */
-  function applyDefaultTemplate(confirmFirst = true) {
-    const go = () => {
-      const tpl = JSON.parse(JSON.stringify(LB.DEFAULT_TEMPLATE));
-      S.label.w = tpl.label.w; S.label.h = tpl.label.h;
-      S.label.bg = (tpl.useTemplateBg && LB.TEMPLATE_BG) ? LB.TEMPLATE_BG : '';
-      S.label.bgInclude = true;
-      S.objects.length = 0;
-      for (const o of tpl.objects) S.objects.push(o);
-      normalizeAll();
-      S.templateName = '기본 A3 라벨 세트';
-      S.layoutDirty = false;
-      ed.select([]);
-      ed.resetHistory();
-      syncInputsToUi();
-      refresh();
-      ed.zoomFit();
-      U().status('기본 서식을 적용했습니다.');
+
+  const SHEET_TPL_NAME = 'A3 라벨 세트 원판';
+
+  /** A3 원판 서식 원본 (객체·배경을 매번 새로 복사해 준다) */
+  function sheetTemplate() {
+    const tpl = JSON.parse(JSON.stringify(LB.DEFAULT_TEMPLATE));
+    return {
+      label: {
+        w: tpl.label.w, h: tpl.label.h,
+        bg: (tpl.useTemplateBg && LB.TEMPLATE_BG) ? LB.TEMPLATE_BG : '',
+        bgInclude: true,
+      },
+      objects: tpl.objects,
     };
-    if (!confirmFirst || !S.objects.length) { go(); return Promise.resolve(true); }
+  }
+
+  /** 서식을 통째로 갈아 끼운다 */
+  function installTemplate(label, objects, name) {
+    S.label.w = label.w; S.label.h = label.h;
+    S.label.bg = label.bg || '';
+    S.label.bgInclude = label.bgInclude !== false;
+    S.objects.length = 0;
+    for (const o of objects) S.objects.push(o);
+    normalizeAll();
+    S.templateName = name;
+    S.layoutDirty = false;
+    ed.select([]);
+    ed.resetHistory();
+    syncInputsToUi();
+    refresh();
+    ed.zoomFit();
+  }
+
+  /**
+   * 기본 제공 서식을 적용한다.
+   *
+   * 기본값은 **라벨 한 장의 실제 크기**다. A3 원판은 12종을 모아 둔 원본일 뿐이라
+   * 그대로 두면 출력 크기가 297×420mm가 되어 버린다. 그래서 원판에서 해당
+   * 라벨만 떼어낸 서식을 기본으로 쓴다.
+   *
+   * @param {string} presetId  LB.paper.PRODUCT_LABELS 의 v, 또는 'SHEET-A3'
+   */
+  async function applyPresetTemplate(presetId) {
+    const sheet = sheetTemplate();
+    if (presetId === 'SHEET-A3') {
+      installTemplate(sheet.label, sheet.objects, SHEET_TPL_NAME);
+      await loadSlotImages(true);
+      U().status(`${SHEET_TPL_NAME} 서식을 적용했습니다 (297×420mm).`);
+      return;
+    }
+    const preset = LB.paper.labelById(presetId) || LB.paper.PRODUCT_LABELS[0];
+    const r = await LB.extract.extractPreset(sheet, preset, { keepBackground: true });
+    installTemplate(r.label, r.objects, preset.n);
+    await loadSlotImages(true);
+    U().status(`${preset.n} 서식을 적용했습니다 (${r.label.w}×${r.label.h}mm, 객체 ${r.stats.taken}개).`);
+  }
+
+  /** 기본 서식(설정에 지정된 라벨 한 장)으로 되돌린다 */
+  function applyDefaultTemplate(confirmFirst = true) {
+    const id = LB.settings.value('template.preset', 'PMFL-001');
+    const go = () => applyPresetTemplate(id).catch(e => {
+      U().status('기본 서식 적용 실패: ' + e.message, 'error');
+    });
+    if (!confirmFirst || !S.objects.length) { return go().then(() => true); }
     return U().confirm('현재 레이아웃을 기본 서식으로 되돌릴까요?', {
       title: '서식 되돌리기', danger: true, okLabel: '되돌리기',
       detail: '현재 배치한 객체는 사라집니다. 되돌린 뒤 Ctrl+Z로 취소할 수 있습니다.',
-    }).then(ok => { if (ok) go(); return ok; });
+    }).then(ok => { if (ok) return go().then(() => true); return false; });
   }
 
   async function refreshTemplateList() {
     const list = (await LB.store.get('templates').catch(() => null)) || [];
     const sel = $('selTemplate');
     LB.ui.clear(sel);
-    const def = document.createElement('option');
-    def.value = '__default__'; def.textContent = '기본 A3 라벨 세트';
-    sel.appendChild(def);
-    for (const t of list) {
+
+    // 기본 제공 — 원판에서 자동으로 떼어낸 라벨 한 장짜리 서식들
+    const og = document.createElement('optgroup');
+    og.label = '기본 제공 (라벨 1장)';
+    for (const p of LB.paper.PRODUCT_LABELS) {
       const o = document.createElement('option');
-      o.value = t.name; o.textContent = t.name;
-      sel.appendChild(o);
+      o.value = '__preset__:' + p.v;
+      o.textContent = `${p.n} — ${p.w}×${p.h}`;
+      og.appendChild(o);
     }
-    sel.value = list.some(t => t.name === S.templateName) ? S.templateName : '__default__';
+    sel.appendChild(og);
+
+    const og2 = document.createElement('optgroup');
+    og2.label = '원본';
+    const def = document.createElement('option');
+    def.value = '__preset__:SHEET-A3';
+    def.textContent = `${SHEET_TPL_NAME} — 297×420`;
+    og2.appendChild(def);
+    sel.appendChild(og2);
+
+    if (list.length) {
+      const og3 = document.createElement('optgroup');
+      og3.label = '내가 저장한 서식';
+      for (const t of list) {
+        const o = document.createElement('option');
+        o.value = t.name; o.textContent = t.name;
+        og3.appendChild(o);
+      }
+      sel.appendChild(og3);
+    }
+
+    if (list.some(t => t.name === S.templateName)) sel.value = S.templateName;
+    else {
+      const m = LB.paper.PRODUCT_LABELS.find(p => p.n === S.templateName);
+      sel.value = m ? '__preset__:' + m.v
+        : (S.templateName === SHEET_TPL_NAME ? '__preset__:SHEET-A3' : '');
+    }
   }
 
   async function saveTemplate() {
     const name = await U().prompt('서식 이름을 입력하세요.', {
-      title: '서식 저장', value: S.templateName === '기본 A3 라벨 세트' ? '' : S.templateName,
+      title: '서식 저장', value: LB.paper.matchPreset(S.label.w, S.label.h) ? '' : S.templateName,
       placeholder: '예: PML-001 A3 세트',
     });
     if (!name) return;
@@ -527,6 +677,13 @@
 
   async function loadTemplate(name) {
     if (name === '__default__') { await applyDefaultTemplate(true); await refreshTemplateList(); return; }
+    if (name.startsWith('__preset__:')) {
+      const id = name.slice('__preset__:'.length);
+      try { await applyPresetTemplate(id); }
+      catch (e) { U().status('서식 적용 실패: ' + e.message, 'error'); }
+      await refreshTemplateList();
+      return;
+    }
     const list = (await LB.store.get('templates').catch(() => null)) || [];
     const t = list.find(x => x.name === name);
     if (!t) return;
@@ -1014,6 +1171,8 @@
         skipErrors: true,
         mode: $('selQueueMode').value,
         includeBg: S.label.bgInclude !== false,
+        // ★ 행마다 그 제품의 그림을 다시 읽는다 (앞 행 사진이 남지 않도록)
+        prepareJob: (job) => loadSlotImagesInto(S.objects, job.fields, true, job.row),
         onProgress: (i, total, r) => {
           if (r) U().status(`${i}/${total} 출력 중: ${r.item} LOT ${r.lot}`);
           renderQueue();
@@ -1032,8 +1191,277 @@
       U().toast('연속 출력 실패: ' + e.message, 'err');
     } finally {
       ed.resolver = origResolver; ed.barcodeCtx = origBc;
+      await loadSlotImages(true);      // 화면을 현재 작업 건의 그림으로 되돌린다
       ed.render();
       updatePrintButton();
+    }
+  }
+
+
+  /* ================= 데이터 매칭 ================= */
+
+  /**
+   * 라벨DB를 별도 창에 펼쳐 놓고 각 항목이 읽을 열을 지정한다.
+   * 저장하면 즉시 다시 계산해 화면에 반영한다.
+   */
+  async function openDataMapper() {
+    if (!S.rows || !S.rows.length) {
+      const go = await U().confirm('라벨DB를 아직 불러오지 않았습니다. 샘플 데이터를 불러올까요?', {
+        title: '데이터 매칭', okLabel: '샘플 불러오기', cancelLabel: '그냥 열기',
+      });
+      if (go) { await loadSampleData(); }
+    }
+    await LB.mapper.openEditor({
+      sampleRow: row,
+      onSaved: () => {
+        if (S.rows && S.rows.length) S.index = LB.data.buildIndex(S.rows, LB.data.keyCol());
+        refresh();
+        renderRefTable();
+        revalidateQueue();
+        U().status(`열 매칭을 적용했습니다 — 조회 키 ${LB.data.keyCol()}열`);
+      },
+    });
+  }
+
+  /* ================= 용지 배치 (면付) ================= */
+
+  /** 현재 배치 설정 */
+  function layoutOpt() {
+    return Object.assign({}, LB.paper.DEFAULT_LAYOUT, LB.settings.value('layout', {}));
+  }
+  function putLayout(patch) {
+    const next = Object.assign(layoutOpt(), patch);
+    LB.settings.put('layout', next);
+    syncPaperUi();
+    renderChecks();
+    updatePrintButton();
+    return next;
+  }
+
+  /** 인쇄 크기 셀렉터·안내문 갱신 */
+  function syncPaperUi() {
+    const sel = $('selPaper');
+    if (!sel) return;
+    if (!sel.dataset.filled) {
+      sel.innerHTML = '';
+      for (const p of LB.paper.PAPERS) {
+        const o = document.createElement('option');
+        o.value = p.v; o.textContent = p.n;
+        sel.appendChild(o);
+      }
+      sel.dataset.filled = '1';
+    }
+    const L = layoutOpt();
+    sel.value = L.paper;
+    const hint = $('printLayoutHint');
+    if (hint) {
+      const txt = LB.paper.describe(S.label, L);
+      hint.textContent = txt;
+      hint.classList.toggle('err', txt.startsWith('❌'));
+    }
+  }
+
+  /** 용지 배치 설정 대화상자 */
+  async function openPaperDialog() {
+    const L = layoutOpt();
+    const body = document.createElement('div');
+    body.className = 'form-grid';
+
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.style.cssText = 'grid-column:1/-1;margin:0 0 4px';
+    note.textContent = '기본은 라벨 실물 크기로 1장씩 출력합니다. 용지를 고르면 같은 라벨을 한 장에 여러 개 앉혀(면付) 인쇄합니다.';
+    body.appendChild(note);
+
+    const addRow = (label, ctl, tip) => {
+      const l = document.createElement('label'); l.className = 'fg-label'; l.textContent = label;
+      if (tip) l.title = tip;
+      body.appendChild(l);
+      const d = document.createElement('div'); d.className = 'fg-ctl'; d.appendChild(ctl);
+      body.appendChild(d);
+      return ctl;
+    };
+    const mk = (tag, props) => Object.assign(document.createElement(tag), props || {});
+
+    const selP = mk('select');
+    for (const p of LB.paper.PAPERS) selP.appendChild(mk('option', { value: p.v, textContent: p.n }));
+    selP.value = L.paper;
+    addRow('용지', selP);
+
+    const cw = mk('input', { type: 'number', min: 10, max: 2000, step: 1, value: L.customW });
+    const ch = mk('input', { type: 'number', min: 10, max: 2000, step: 1, value: L.customH });
+    const cwrap = mk('div'); cwrap.style.cssText = 'display:flex;gap:6px;align-items:center';
+    cw.style.width = ch.style.width = '86px';
+    cwrap.append(cw, mk('span', { className: 'mini', textContent: '×' }), ch, mk('span', { className: 'mini', textContent: 'mm' }));
+    addRow('사용자 지정 크기', cwrap);
+
+    const selO = mk('select');
+    for (const [v, n] of [['auto', '자동 (많이 들어가는 쪽)'], ['portrait', '세로'], ['landscape', '가로']])
+      selO.appendChild(mk('option', { value: v, textContent: n }));
+    selO.value = L.orientation;
+    addRow('방향', selO);
+
+    const mg = mk('input', { type: 'number', min: 0, max: 60, step: 0.5, value: L.marginMm });
+    addRow('가장자리 여백 (mm)', mg);
+
+    const gx = mk('input', { type: 'number', min: 0, max: 50, step: 0.5, value: L.gapX });
+    const gy = mk('input', { type: 'number', min: 0, max: 50, step: 0.5, value: L.gapY });
+    const gwrap = mk('div'); gwrap.style.cssText = 'display:flex;gap:6px;align-items:center';
+    gx.style.width = gy.style.width = '86px';
+    gwrap.append(mk('span', { className: 'mini', textContent: '가로' }), gx,
+                 mk('span', { className: 'mini', textContent: '세로' }), gy,
+                 mk('span', { className: 'mini', textContent: 'mm' }));
+    addRow('라벨 사이 간격', gwrap);
+
+    const selA = mk('select');
+    for (const [v, n] of [['center', '용지 가운데'], ['topleft', '왼쪽 위부터']])
+      selA.appendChild(mk('option', { value: v, textContent: n }));
+    selA.value = L.align;
+    addRow('배치 기준', selA);
+
+    const selR = mk('select');
+    for (const [v, n] of [['fill', '한 장을 같은 라벨로 가득 채움'], ['one', '한 장에 1개만']])
+      selR.appendChild(mk('option', { value: v, textContent: n }));
+    selR.value = L.repeat;
+    addRow('단일 출력 시 반복', selR, '큐(연속 출력)는 언제나 서로 다른 라벨로 칸을 채웁니다.');
+
+    const cm = mk('input', { type: 'checkbox', checked: !!L.cropMarks });
+    addRow('재단선 표시', cm);
+    const ol = mk('input', { type: 'checkbox', checked: !!L.outline });
+    addRow('라벨 테두리선 표시', ol);
+
+    const out = document.createElement('div');
+    out.className = 'callout';
+    out.style.cssText = 'grid-column:1/-1;margin-top:6px';
+    body.appendChild(out);
+
+    const read = () => ({
+      paper: selP.value,
+      customW: Number(cw.value) || 210, customH: Number(ch.value) || 297,
+      orientation: selO.value,
+      marginMm: Number(mg.value) || 0,
+      gapX: Number(gx.value) || 0, gapY: Number(gy.value) || 0,
+      align: selA.value, repeat: selR.value,
+      cropMarks: cm.checked, outline: ol.checked,
+    });
+    const preview = () => {
+      const o = read();
+      const direct = o.paper === 'label';
+      cwrap.style.opacity = o.paper === 'custom' ? '1' : '.4';
+      cw.disabled = ch.disabled = o.paper !== 'custom';
+      for (const e of [selO, mg, gx, gy, selA, selR, cm, ol]) e.disabled = direct;
+      const txt = LB.paper.describe(S.label, o);
+      out.textContent = `라벨 ${Math.round(S.label.w * 10) / 10}×${Math.round(S.label.h * 10) / 10}mm — ${txt}`;
+      out.className = 'callout' + (txt.startsWith('❌') ? ' err' : direct ? '' : ' info');
+    };
+    for (const e of [selP, cw, ch, selO, mg, gx, gy, selA, selR, cm, ol]) {
+      e.addEventListener('change', preview);
+      e.addEventListener('input', preview);
+    }
+    preview();
+
+    const ok = await U().modal({
+      title: '용지 배치',
+      body,
+      buttons: [
+        { label: '취소', value: false },
+        { label: '라벨 실물 크기로', value: 'reset' },
+        { label: '적용', value: true, primary: true },
+      ],
+      defaultValue: false,
+    });
+    if (ok === 'reset') { putLayout(Object.assign({}, LB.paper.DEFAULT_LAYOUT)); U().status('인쇄 크기를 라벨 실물 크기로 되돌렸습니다.'); return; }
+    if (!ok) return;
+    putLayout(read());
+    U().status('용지 배치를 적용했습니다 — ' + LB.paper.describe(S.label, layoutOpt()));
+  }
+
+  /* ================= A3 원판에서 라벨 떼어내기 ================= */
+
+  async function openExtractDialog() {
+    const isSheet = Math.abs(S.label.w - LB.paper.SHEET.w) < 2 && Math.abs(S.label.h - LB.paper.SHEET.h) < 2;
+    if (!isSheet) {
+      const go = await U().confirm('지금 서식은 A3 원판(297×420mm)이 아닙니다. 원판을 불러온 뒤 떼어낼까요?', {
+        title: '원판에서 라벨 떼어내기',
+        okLabel: '원판 불러오기', cancelLabel: '취소',
+        detail: '현재 배치한 객체는 원판 서식으로 바뀝니다. 되돌리려면 Ctrl+Z 를 누르세요.',
+      });
+      if (!go) return;
+      try { await applyPresetTemplate('SHEET-A3'); }
+      catch (e) { U().toast('원판 서식을 불러오지 못했습니다: ' + e.message, 'err'); return; }
+    }
+    const sheetTpl = { label: S.label, objects: S.objects };
+
+    const body = document.createElement('div');
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.style.margin = '0 0 8px';
+    note.textContent = 'A3 원판에서 라벨 한 장만 떼어내 그 라벨의 실제 크기를 가진 독립 서식으로 만듭니다. 배경 서식 그림도 그 부분만 잘라 옵니다.';
+    body.appendChild(note);
+
+    const list = document.createElement('div');
+    list.className = 'pick-list';
+    const pv = LB.extract.preview(sheetTpl, LB.paper.PRODUCT_LABELS);
+    let chosen = null;
+    for (const item of pv) {
+      const b = document.createElement('button');
+      b.className = 'pick-item';
+      b.type = 'button';
+      b.innerHTML = `<span class="pi-name">${item.preset.n}</span>`
+        + `<span class="pi-size">${item.preset.w} × ${item.preset.h} mm</span>`
+        + `<span class="pi-n">${item.n}개 객체${item.partial ? ` (+걸친 것 ${item.partial})` : ''}</span>`;
+      b.onclick = () => {
+        chosen = item.preset;
+        for (const c of list.children) c.classList.toggle('on', c === b);
+      };
+      list.appendChild(b);
+    }
+    body.appendChild(list);
+
+    const keep = document.createElement('label');
+    keep.className = 'chk';
+    keep.style.marginTop = '8px';
+    keep.innerHTML = '<input type="checkbox" checked> 배경 서식 그림도 잘라서 가져오기';
+    body.appendChild(keep);
+
+    const warn = document.createElement('div');
+    warn.className = 'callout warn';
+    warn.style.marginTop = '8px';
+    warn.textContent = '지금 서식은 교체됩니다. 되돌리려면 Ctrl+Z 를 누르세요.';
+    body.appendChild(warn);
+
+    const ok = await U().modal({
+      title: '원판에서 라벨 떼어내기',
+      body, wide: true,
+      buttons: [{ label: '취소', value: false }, { label: '떼어내기', value: true, primary: true }],
+      defaultValue: false,
+    });
+    if (!ok) return;
+    if (!chosen) { U().toast('떼어낼 라벨을 하나 고르세요.', 'warn'); return; }
+
+    try {
+      U().status('라벨을 떼어내는 중…');
+      const r = await LB.extract.extractPreset(sheetTpl, chosen, {
+        keepBackground: keep.querySelector('input').checked,
+      });
+      ed.beginTx('원판에서 라벨 떼어내기');
+      S.label.w = r.label.w; S.label.h = r.label.h;
+      if (keep.querySelector('input').checked) S.label.bg = r.label.bg;
+      S.objects.length = 0;
+      for (const o of r.objects) S.objects.push(o);
+      normalizeAll();
+      S.templateName = chosen.n;
+      ed.selection.clear();
+      ed.endTx(true);
+      syncLabelSizeUi();
+      await loadSlotImages(true);
+      refresh();
+      ed.zoomFit();
+      U().toast(`${chosen.n} — 객체 ${r.stats.taken}개를 가져왔습니다.`, 'ok');
+      U().status(`${chosen.n} (${r.label.w}×${r.label.h}mm) 서식으로 바꿨습니다. 객체 ${r.stats.taken}개, 남긴 것 ${r.stats.dropped}개.`);
+    } catch (e) {
+      U().status('떼어내기 실패: ' + e.message, 'error');
+      U().toast('떼어내기 실패: ' + e.message, 'err');
     }
   }
 
@@ -1114,6 +1542,7 @@
           ed.resolver = (t) => LB.data.resolveText(t, f, rowData);
           ed.barcodeCtx = () => ({ fields: f, objects: S.objects, resolveText: ed.resolver });
           LB.text.invalidate();
+          await loadSlotImagesInto(S.objects, f, true, rowData);   // ★ 이 건의 제품 그림으로 교체
           info = await LB.zpl.fromEditor(ed, {
             objects: S.objects, label: S.label, includeBg: S.label.bgInclude !== false,
             dpi, threshold: P.threshold, dither: P.dither, invert: P.invert,
@@ -1140,6 +1569,7 @@
 
     ed.resolver = resolveText;
     ed.barcodeCtx = () => ({ fields, objects: S.objects, resolveText });
+    await loadSlotImages(true);        // 화면을 현재 작업 건으로 되돌린다
     ed.render();
 
     if (!sender && parts.length) {
@@ -1297,6 +1727,213 @@
     });
   }
 
+
+  /* --- 설정 › 데이터 매칭 --- */
+  function buildMappingPage(p) {
+    if (!p) return;
+    p.innerHTML = '<h3>데이터 매칭</h3>';
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.style.marginBottom = '10px';
+    note.innerHTML = '라벨DB의 <b>어느 열</b>을 어느 항목으로 읽을지 정합니다. '
+      + '엑셀 서식이 바뀌어 열이 밀렸을 때 여기서 맞추면 프로그램 전체가 그 열을 씁니다.';
+    p.appendChild(note);
+
+    const g = document.createElement('section');
+    g.className = 'gbox';
+    g.innerHTML = '<div class="legend">현재 매칭</div>';
+
+    const sum = document.createElement('div');
+    sum.className = 'callout info';
+    g.appendChild(sum);
+
+    const tbl = document.createElement('table');
+    tbl.className = 'kvtable';
+    tbl.style.marginTop = '8px';
+    const tb = document.createElement('tbody');
+    tbl.appendChild(tb);
+    g.appendChild(tbl);
+
+    const paint = () => {
+      const diff = LB.data.fieldMapDiff();
+      const n = Object.keys(diff).length;
+      const keyChanged = LB.data.keyCol() !== 'H';
+      sum.textContent = (n || keyChanged)
+        ? `기본값과 다르게 지정된 항목 ${n}개${keyChanged ? ` · 조회 키 ${LB.data.keyCol()}열` : ''}`
+        : `모두 기본값입니다 (조회 키 ${LB.data.keyCol()}열).`;
+      sum.className = 'callout ' + ((n || keyChanged) ? 'warn' : 'info');
+      LB.ui.clear(tb);
+      const rows = [['__KEY__', '품목번호 (조회 키)', LB.data.keyCol(), 'H']];
+      for (const k in diff) rows.push([k, LB.data.FIELD_LABELS[k] || k, diff[k], LB.data.DEFAULT_FIELD_COLS[k] || '—']);
+      if (rows.length === 1 && !keyChanged) {
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 3;
+        td.className = 'hint';
+        td.textContent = '바꾼 항목이 없습니다.';
+        tr.appendChild(td); tb.appendChild(tr);
+        return;
+      }
+      for (const [, label, cur, def] of rows) {
+        if (cur === def) continue;
+        const tr = document.createElement('tr');
+        const th = document.createElement('th'); th.textContent = label;
+        const td = document.createElement('td');
+        td.innerHTML = `<b>${cur || '—'}</b>열 <span class="mini">(기본 ${def}열)</span>`;
+        tr.append(th, td); tb.appendChild(tr);
+      }
+    };
+    paint();
+
+    const row = document.createElement('div');
+    row.className = 'row'; row.style.marginTop = '10px';
+    const open = document.createElement('button');
+    open.className = 'btn primary'; open.textContent = '데이터 매칭 편집기 열기…';
+    open.onclick = async () => { await openDataMapper(); paint(); };
+    const reset = document.createElement('button');
+    reset.className = 'btn ghost sm'; reset.textContent = '기본값으로';
+    reset.onclick = async () => {
+      const ok = await U().confirm('열 매칭을 모두 기본값으로 되돌릴까요?', { title: '기본값으로', okLabel: '되돌리기' });
+      if (!ok) return;
+      LB.data.resetFieldMap();
+      LB.data.setKeyCol('H');
+      LB.settings.put('data.fieldMap', {});
+      LB.settings.put('data.keyCol', 'H');
+      if (S.rows && S.rows.length) S.index = LB.data.buildIndex(S.rows, 'H');
+      refresh(); paint();
+      U().toast('기본값으로 되돌렸습니다.', 'ok');
+    };
+    row.append(open, reset);
+    g.appendChild(row);
+    p.appendChild(g);
+  }
+
+  /* --- 설정 › 라벨 · 용지 --- */
+  function buildLayoutPage(p) {
+    if (!p) return;
+    p.innerHTML = '<h3>라벨 · 용지</h3>';
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.style.marginBottom = '10px';
+    note.innerHTML = '출력 크기의 기본은 <b>라벨 실물 크기</b>입니다. '
+      + 'A4·A3 용지는 같은 라벨을 한 장에 여러 개 앉혀 찍고 싶을 때만 고르세요.';
+    p.appendChild(note);
+
+    /* 현재 라벨 */
+    const g1 = document.createElement('section');
+    g1.className = 'gbox';
+    g1.innerHTML = '<div class="legend">현재 라벨 크기</div>';
+    const cur = document.createElement('div');
+    cur.className = 'callout';
+    g1.appendChild(cur);
+
+    const r1 = document.createElement('div');
+    r1.className = 'row'; r1.style.marginTop = '8px';
+    const sel = document.createElement('select');
+    sel.style.flex = '1';
+    for (const grp of LB.paper.allLabelPresets()) {
+      const og = document.createElement('optgroup');
+      og.label = grp.group;
+      for (const it of grp.items) {
+        const o = document.createElement('option');
+        o.value = it.v; o.textContent = `${it.n} — ${it.w}×${it.h}mm`;
+        og.appendChild(o);
+      }
+      sel.appendChild(og);
+    }
+    const custom = document.createElement('option');
+    custom.value = ''; custom.textContent = '사용자 지정';
+    sel.appendChild(custom);
+    const apply = document.createElement('button');
+    apply.className = 'btn sm'; apply.textContent = '이 크기로';
+    r1.append(sel, apply);
+    g1.appendChild(r1);
+
+    const paintCur = () => {
+      const m = LB.paper.matchPreset(S.label.w, S.label.h);
+      cur.textContent = `${Math.round(S.label.w * 10) / 10} × ${Math.round(S.label.h * 10) / 10} mm`
+        + (m ? ` — ${m.n}` : ' — 사용자 지정');
+      sel.value = m ? m.v : '';
+    };
+    paintCur();
+    apply.onclick = () => {
+      const it = LB.paper.labelById(sel.value);
+      if (!it) { U().toast('규격을 고르세요.', 'warn'); return; }
+      S.label.w = it.w; S.label.h = it.h;
+      syncLabelSizeUi(); paintCur(); syncPaperUi();
+      ed.render(); ed.zoomFit(); renderChecks(); scheduleSave();
+      U().toast(`라벨 크기를 ${it.w}×${it.h}mm 로 맞췄습니다.`, 'ok');
+    };
+    p.appendChild(g1);
+
+    /* 시작 서식 */
+    const g0 = document.createElement('section');
+    g0.className = 'gbox';
+    g0.innerHTML = '<div class="legend">시작할 때 쓸 기본 서식</div>';
+    const selT = document.createElement('select');
+    selT.style.width = '100%';
+    for (const it of LB.paper.PRODUCT_LABELS) {
+      const o = document.createElement('option');
+      o.value = it.v; o.textContent = `${it.n} — ${it.w}×${it.h}mm`;
+      selT.appendChild(o);
+    }
+    const oSheet = document.createElement('option');
+    oSheet.value = 'SHEET-A3'; oSheet.textContent = 'A3 라벨 세트 원판 (297×420mm)';
+    selT.appendChild(oSheet);
+    selT.value = LB.settings.value('template.preset', 'PMFL-001');
+    selT.onchange = () => {
+      LB.settings.put('template.preset', selT.value);
+      U().status(`시작 서식을 바꿨습니다 — ${selT.options[selT.selectedIndex].textContent}`);
+    };
+    g0.appendChild(selT);
+    const h0 = document.createElement('div');
+    h0.className = 'hint'; h0.style.marginTop = '6px';
+    h0.textContent = '저장된 서식이 없을 때(또는 [서식 되돌리기] 를 눌렀을 때) 적용됩니다.';
+    g0.appendChild(h0);
+    p.appendChild(g0);
+
+    /* 용지 배치 */
+    const g2 = document.createElement('section');
+    g2.className = 'gbox';
+    g2.innerHTML = '<div class="legend">용지 배치 (면付)</div>';
+    const desc = document.createElement('div');
+    desc.className = 'callout';
+    g2.appendChild(desc);
+    const r2 = document.createElement('div');
+    r2.className = 'row'; r2.style.marginTop = '8px';
+    const openP = document.createElement('button');
+    openP.className = 'btn'; openP.textContent = '용지 배치 설정…';
+    const resetP = document.createElement('button');
+    resetP.className = 'btn ghost sm'; resetP.textContent = '라벨 실물 크기로';
+    r2.append(openP, resetP);
+    g2.appendChild(r2);
+    const paintL = () => {
+      const L = layoutOpt();
+      const t = LB.paper.describe(S.label, L);
+      desc.textContent = t;
+      desc.className = 'callout ' + (t.startsWith('❌') ? 'err' : L.paper === 'label' ? '' : 'info');
+    };
+    paintL();
+    openP.onclick = async () => { await openPaperDialog(); paintL(); paintCur(); };
+    resetP.onclick = () => { putLayout(Object.assign({}, LB.paper.DEFAULT_LAYOUT)); paintL(); };
+    p.appendChild(g2);
+
+    /* 원판에서 떼기 */
+    const g3 = document.createElement('section');
+    g3.className = 'gbox';
+    g3.innerHTML = '<div class="legend">A3 원판에서 라벨 떼어내기</div>';
+    const h3 = document.createElement('div');
+    h3.className = 'hint';
+    h3.textContent = '원판(297×420mm) 서식에서 라벨 한 장만 잘라 독립 서식으로 만듭니다.';
+    g3.appendChild(h3);
+    const b3 = document.createElement('button');
+    b3.className = 'btn sm'; b3.textContent = '떼어내기…';
+    b3.style.marginTop = '8px';
+    b3.onclick = () => openExtractDialog();
+    g3.appendChild(b3);
+    p.appendChild(g3);
+  }
+
   /* ================= 설정 대화상자 ================= */
   async function openSettings(page) {
     const body = document.createElement('div');
@@ -1304,7 +1941,8 @@
     const nav = document.createElement('div'); nav.className = 'settings-nav';
     const cont = document.createElement('div');
     const PAGES = [
-      ['paths', '폴더 경로'], ['output', '출력'], ['printer', 'ZEBRA 프린터'], ['imaging', '이미지'],
+      ['paths', '폴더 경로'], ['mapping', '데이터 매칭'], ['layout', '라벨 · 용지'],
+      ['output', '출력'], ['printer', 'ZEBRA 프린터'], ['imaging', '이미지'],
       ['validation', '검증 규칙'], ['ui', '화면'], ['history', '출력 이력'], ['about', '정보'],
     ];
     const pages = {};
@@ -1336,6 +1974,9 @@
   }
 
   function buildSettingsPages(pages) {
+    buildMappingPage(pages.mapping);
+    buildLayoutPage(pages.layout);
+
     /* --- 폴더 경로 --- */
     const p = pages.paths;
     p.innerHTML = '<h3>폴더 경로</h3>';
@@ -1465,8 +2106,12 @@
       if (!list) { U().toast('이미지 폴더가 없거나 권한이 없습니다.', 'warn'); return; }
       const needed = new Set();
       for (const o of S.objects) if (o.type === 'image' && o.sourceField) {
+        const col = String(o.sourceField).startsWith('@')
+          ? o.sourceField.slice(1).toUpperCase()
+          : LB.data.FIELD_COLS[o.sourceField];
+        if (!col) continue;
         for (const r of (S.rows || [])) {
-          const v = r[LB.data.FIELD_COLS[o.sourceField]];
+          const v = r[col];
           if (v) needed.add(String(v).trim());
         }
       }
@@ -1955,6 +2600,7 @@
       if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); $('inpMfg').focus(); }
     });
 
+    $('btnMapData').onclick = () => openDataMapper();
     $('btnClearJob').onclick = () => {
       Object.assign(S.inputs, { lot: '', sn: '', copies: 1 });
       S.activeQueueId = null;
@@ -2096,14 +2742,14 @@
     $('btnGrid').onclick = () => { LB.settings.put('ui.showGrid', !LB.settings.value('ui.showGrid', false)); applyUiSettings(); ed.render(); };
     $('btnRuler').onclick = () => { LB.settings.put('ui.showRulers', !LB.settings.value('ui.showRulers', true)); applyUiSettings(); ed.render(); };
     $('btnLink').onclick = () => {
-      const next = ed.linkMode === 'all' ? 'selection' : 'all';
+      const next = ed.linkMode === 'on' ? 'off' : 'on';
       ed.linkMode = next;
       LB.settings.put('ui.linkMode', next);
-      $('btnLink').classList.toggle('on', next === 'all');
+      $('btnLink').classList.toggle('on', next === 'on');
       ed.render();
-      U().status(next === 'all'
-        ? '링크 보기 — 라벨에서 반복되는 값을 데이터별 색으로 묶어 표시합니다.'
-        : '링크 보기를 껐습니다. 객체를 선택하면 같은 데이터를 쓰는 곳이 함께 표시됩니다.');
+      U().status(next === 'on'
+        ? '링크 보기 켬 — 객체를 하나 고르면 같은 값을 쓰는 곳이 함께 표시됩니다.'
+        : '링크 보기를 껐습니다.');
     };
     $('selTarget').onchange = () => {
       LB.settings.put('output.target', $('selTarget').value);
@@ -2116,12 +2762,31 @@
     $('selZoom').onchange = () => ed.zoomTo(Number($('selZoom').value));
 
     const onSize = () => {
-      S.label.w = Math.max(5, Number($('inpLabelW').value) || 297);
-      S.label.h = Math.max(5, Number($('inpLabelH').value) || 420);
-      ed.render(); renderChecks(); scheduleSave();
+      S.label.w = Math.max(5, Number($('inpLabelW').value) || 173.8);
+      S.label.h = Math.max(5, Number($('inpLabelH').value) || 26.3);
+      syncLabelSizeUi();
+      ed.render(); renderChecks(); scheduleSave(); updatePrintButton();
     };
     $('inpLabelW').addEventListener('change', onSize);
     $('inpLabelH').addEventListener('change', onSize);
+    $('selLabelPreset').onchange = () => {
+      const p = LB.paper.labelById($('selLabelPreset').value);
+      if (!p) return;                       // '사용자 지정' 은 숫자칸으로 직접
+      S.label.w = p.w; S.label.h = p.h;
+      syncLabelSizeUi();
+      ed.render(); ed.zoomFit(); renderChecks(); scheduleSave(); updatePrintButton();
+      U().status(`라벨 크기를 ${p.n} (${p.w}×${p.h}mm) 로 맞췄습니다.`);
+    };
+    $('btnExtract').onclick = () => openExtractDialog();
+    $('selPaper').onchange = () => {
+      const v = $('selPaper').value;
+      if (v === 'custom') { putLayout({ paper: 'custom' }); openPaperDialog(); return; }
+      putLayout({ paper: v });
+      U().status(v === 'label'
+        ? '라벨 실물 크기로 1장씩 출력합니다.'
+        : LB.paper.describe(S.label, layoutOpt()));
+    };
+    $('btnPaperSetup').onclick = () => openPaperDialog();
 
     /* --- 전역 키 --- */
     window.addEventListener('keydown', (e) => {
@@ -2405,8 +3070,14 @@
       onChange: () => { scheduleSave(); renderChecks(); },
       onImageSourceChange: () => loadSlotImages(true),
       onPickImageFile: () => $('fileImg').click(),
+      onOpenMapper: () => openDataMapper(),
     });
-    LB.batch.onChange(() => { renderQueue(); });
+    // 큐가 바뀌면 화면을 갱신하고 ★저장도 예약한다.
+    // (500행을 붙여 넣고 브라우저를 닫아도 그대로 살아 있어야 한다)
+    LB.batch.onChange((st) => {
+      renderQueue();
+      if (!st || !st.running) scheduleSave();   // 출력 중에는 저장을 미룬다
+    });
 
     bind();
     await refreshTemplateList();
@@ -2422,5 +3093,6 @@
     refresh, loadDbFromFile, loadSampleData, addCurrentToQueue, pasteToQueue,
     doPrintSingle, doPrintQueue, printSingle, printQueue, printZebra,
     openSettings, setLocked, normalizeAll, renderQueue, revalidateQueue,
+    loadSlotImages, loadSlotImagesInto,
     get preflight() { return lastPreflight; } };
 })();
