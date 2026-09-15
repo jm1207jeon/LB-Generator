@@ -1,213 +1,465 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LB Generator — 의료기기 라벨 PDF 생성기</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LaPrint — 의료기기 라벨 출력</title>
+<link rel="icon" type="image/svg+xml" href="assets/icon-simple.svg">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+
 <div id="app">
-  <!-- ======================= 좌측 패널 ======================= -->
-  <aside id="sidebar">
-    <h1>LB Generator <span class="ver">v1.0</span></h1>
 
-    <!-- 1. DB 파일 로딩 -->
-    <section class="panel" id="panel-db">
-      <h2>1. 라벨 DB 로딩</h2>
-      <div class="row">
-        <button id="btnLoadDb" class="btn primary">DB 파일 열기 (.xlsm/.xlsx/.csv)</button>
-        <input type="file" id="fileDb" accept=".xlsx,.xlsm,.xls,.csv" hidden>
-      </div>
-      <div id="dbStatus" class="hint">DB가 로딩되지 않았습니다. (한 번 로딩하면 브라우저에 저장되어 재사용됩니다)</div>
-      <div class="row">
-        <label>품목 번호 검색</label>
-        <input type="text" id="inpRef" list="refList" placeholder="예: 16-0401" autocomplete="off">
-        <datalist id="refList"></datalist>
-      </div>
-    </section>
+  <!-- ══════════════════ 앱바 ══════════════════ -->
+  <header id="appbar">
+    <div class="brand">
+      <img class="mark" src="assets/icon.svg" alt="" width="26" height="26">
+      <span>LaPrint <span class="ver">v2.0</span></span>
+    </div>
+    <span class="appbar-sep"></span>
 
-    <!-- 2. 사용자 입력 -->
-    <section class="panel" id="panel-input">
-      <h2>2. 사용자 입력</h2>
-      <div class="grid2">
-        <label>LOT</label><input type="text" id="inpLot" placeholder="예: 26041086">
-        <label>SN</label><input type="text" id="inpSn" placeholder="예: 0 (없으면 비움)">
-        <label>MFG (제조일)</label><input type="date" id="inpMfg">
-        <label>유효기간(개월)</label><input type="number" id="inpMonths" value="36" min="1" max="120">
-        <label>EXP (유효일)</label>
-        <div class="inline">
-          <input type="date" id="inpExp" disabled>
-          <label class="chk"><input type="checkbox" id="chkExpAuto" checked> 자동</label>
+    <label class="mini" for="selTemplate">서식</label>
+    <select id="selTemplate" style="width:auto;min-width:168px" title="라벨 서식 선택"></select>
+    <button id="btnTplSave" class="btn sm" title="현재 레이아웃을 서식으로 저장 (Ctrl+S)">저장</button>
+    <button id="btnTplManage" class="btn sm ghost" title="서식 관리">관리…</button>
+
+    <span class="appbar-sep"></span>
+    <button id="btnLock" class="btn sm on" aria-pressed="true"
+            title="레이아웃 잠금 (Ctrl+L) — 켜면 캔버스 객체를 실수로 옮길 수 없습니다">🔒 잠금</button>
+    <button id="btnPreview" class="btn sm" aria-pressed="false"
+            title="실물 미리보기 (F5) — 편집 보조선을 숨기고 인쇄될 모습만 봅니다">실물 보기</button>
+
+    <span class="spacer"></span>
+
+    <div class="chips" id="chips">
+      <button class="chip" id="chipDb"  title="라벨DB — 클릭하면 설정이 열립니다"><span class="dot"></span><span class="txt">DB 없음</span></button>
+      <button class="chip" id="chipImg" title="이미지 폴더 — 클릭하면 설정이 열립니다"><span class="dot"></span><span class="txt">이미지 폴더</span></button>
+      <button class="chip" id="chipOut" title="PDF 저장 폴더 — 클릭하면 설정이 열립니다"><span class="dot"></span><span class="txt">저장 폴더</span></button>
+    </div>
+
+    <span class="appbar-sep"></span>
+    <button id="btnSettings" class="btn sm ghost icon" title="설정 (Ctrl+,)">⚙</button>
+    <button id="btnHelp" class="btn sm ghost icon" title="단축키 도움말 (F1)">?</button>
+  </header>
+
+  <!-- ══════════════════ 좌측 데이터 레일 ══════════════════ -->
+  <aside id="rail" class="scroll-thin">
+
+    <!-- 1. 작업 입력 -->
+    <section class="gbox" id="gboxJob">
+      <div class="legend">작업 입력 <span class="sub" id="jobOrigin">새 작업</span></div>
+
+      <div class="row search-wrap" style="display:block;position:relative">
+        <label class="mini" for="inpItem">품목번호</label>
+        <input type="text" id="inpItem" class="mono" placeholder="예: 16-0401" autocomplete="off" spellcheck="false">
+        <div id="itemPop" hidden></div>
+      </div>
+
+      <div class="field" style="margin-top:6px">
+        <label for="inpLot">LOT</label>
+        <input type="text" id="inpLot" class="mono" placeholder="예: 26041086" autocomplete="off" spellcheck="false">
+
+        <label for="inpSn">SN</label>
+        <input type="text" id="inpSn" class="mono" placeholder="없으면 비움" autocomplete="off" spellcheck="false">
+
+        <label for="inpMfg">제조일</label>
+        <input type="date" id="inpMfg">
+
+        <label for="inpMonths">유효기간</label>
+        <div class="row" style="margin:0">
+          <input type="number" id="inpMonths" value="36" min="1" max="240" style="width:64px">
+          <span class="mini">개월</span>
+          <label class="chk" style="margin-left:auto"><input type="checkbox" id="chkExpAuto" checked> 자동</label>
         </div>
+
+        <label for="inpExp">유효일</label>
+        <input type="date" id="inpExp" disabled>
+
+        <label for="inpCopies">매수</label>
+        <input type="number" id="inpCopies" value="1" min="1" max="999" style="width:64px">
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button id="btnQueueAdd" class="btn" style="flex:1" title="현재 입력을 연속 작업 큐에 추가 (Ctrl+Enter)">＋ 큐에 추가</button>
+        <button id="btnClearJob" class="btn ghost sm" title="입력값 지우기">지우기</button>
       </div>
     </section>
 
-    <!-- 3. DB 참조 값 -->
-    <section class="panel" id="panel-refvals">
-      <h2>3. DB 참조 값</h2>
-      <table id="tblRef">
-        <tbody></tbody>
-      </table>
+    <!-- 2. DB 참조값 -->
+    <section class="gbox" id="gboxRef">
+      <div class="legend">DB 참조값</div>
+      <table class="kvtable"><tbody id="tblRef"></tbody></table>
       <div class="udi-box">
-        <div class="udi-label">UDI (GS1 Full)</div>
-        <div id="udiFull" class="udi-val">-</div>
+        <div class="lbl">UDI (GS1)</div>
+        <div class="val" id="udiFull">—</div>
       </div>
     </section>
 
-    <!-- 4. 설정 -->
-    <section class="panel" id="panel-settings">
-      <h2>4. 설정</h2>
-      <div class="row">
-        <label>이미지 폴더 (네트워크 경로 가능)</label>
-        <div class="inline">
-          <button id="btnImgDir" class="btn">폴더 선택</button>
-          <span id="imgDirName" class="hint">미지정</span>
-        </div>
-      </div>
-      <div class="row">
-        <label>PDF 저장 폴더</label>
-        <div class="inline">
-          <button id="btnOutDir" class="btn">폴더 선택</button>
-          <span id="outDirName" class="hint">미지정 (미지정 시 다운로드)</span>
-        </div>
-      </div>
-      <div class="row">
-        <label>파일명 규칙 <span class="hint">{ITEM} {REF} {LOT} {SN} {MFG} {EXP} {EXP6} {DATE} {TIME} {PRODUCT} {W} {H}</span></label>
-        <input type="text" id="inpPattern" value="{ITEM}_{LOT}_{DATE}">
-      </div>
-      <div class="row">
-        <label>배경 이미지 (라벨 레이아웃)</label>
-        <div class="inline">
-          <button id="btnBgLoad" class="btn">이미지 로딩</button>
-          <button id="btnBgTpl" class="btn">기본 배경</button>
-          <button id="btnBgClear" class="btn">제거</button>
-          <input type="file" id="fileBg" accept="image/*" hidden>
-        </div>
-        <label class="chk"><input type="checkbox" id="chkBgInclude" checked> PDF 출력에 배경 포함</label>
-        <div id="bgStatus" class="hint">배경 없음</div>
-      </div>
-      <div class="grid2">
-        <label>라벨 가로 (mm)</label><input type="number" id="inpLabelW" value="100" min="10" max="500" step="0.5">
-        <label>라벨 세로 (mm)</label><input type="number" id="inpLabelH" value="70" min="10" max="500" step="0.5">
-        <label>출력 해상도 (DPI)</label>
-        <select id="selDpi">
-          <option value="300">300</option>
-          <option value="600" selected>600</option>
-          <option value="1200">1200</option>
-        </select>
-        <label>배경 제거 허용치</label><input type="number" id="inpTol" value="30" min="0" max="120">
-      </div>
-      <label class="chk"><input type="checkbox" id="chkAutoTransparent" checked> JPG/불투명 PNG 배경 자동 투명화</label>
+    <!-- 3. 출력 전 점검 -->
+    <section class="gbox" id="gboxChecks">
+      <div class="legend">출력 전 점검 <span class="sub" id="checkSummary"></span></div>
+      <div id="checks"></div>
     </section>
 
-    <!-- 5. 출력 -->
-    <section class="panel" id="panel-export">
-      <button id="btnExport" class="btn export">PDF 출력</button>
-      <div id="exportStatus" class="hint"></div>
-    </section>
-
-    <!-- 템플릿 -->
-    <section class="panel">
-      <h2>템플릿</h2>
-      <div class="inline">
-        <button id="btnTplDefault" class="btn">기본 템플릿</button>
-        <button id="btnTplExport" class="btn">내보내기</button>
-        <button id="btnTplImport" class="btn">가져오기</button>
-        <input type="file" id="fileTpl" accept=".json" hidden>
-      </div>
-    </section>
+    <!-- 4. 출력 -->
+    <div class="row" style="margin-bottom:6px">
+      <span class="mini">출력 대상</span>
+      <select id="selTarget" style="flex:1" title="PDF 파일로 만들지, 제브라 프린터로 바로 보낼지">
+        <option value="pdf">PDF 파일</option>
+        <option value="zebra">ZEBRA 프린터 (ZPL)</option>
+      </select>
+      <button id="btnPrinterSetup" class="btn sm ghost icon" title="프린터 설정">🖨</button>
+    </div>
+    <button id="btnPrint" class="btn primary lg block" title="출력 (Ctrl+P)">PDF 출력</button>
+    <div class="hint" id="printHint" style="margin-top:5px;text-align:center"></div>
   </aside>
 
-  <!-- ======================= 우측 편집 영역 ======================= -->
-  <main id="main">
-    <div id="toolbar">
-      <div class="tgroup">
-        <button id="btnAddText" class="btn" title="텍스트 추가">＋텍스트</button>
-        <button id="btnAddSlot" class="btn" title="이미지 슬롯 추가">＋이미지 슬롯</button>
-        <button id="btnAddBarcode" class="btn" title="DataMatrix 추가">＋DataMatrix</button>
-        <button id="btnAddImage" class="btn" title="이미지 파일 직접 추가">＋이미지 파일</button>
+  <!-- ══════════════════ 중앙 스테이지 ══════════════════ -->
+  <main id="stageArea">
+    <div id="stageBar">
+      <div class="tgrp" id="tgrpInsert">
+        <button id="btnAddText" class="btn sm" title="텍스트 추가">＋텍스트</button>
+        <button id="btnAddSlot" class="btn sm" title="DB 이미지 슬롯 추가">＋이미지 슬롯</button>
+        <select id="selNewBarcode" class="btn sm" style="min-width:auto;width:auto" title="추가할 바코드 종류"></select>
+        <button id="btnAddBarcode" class="btn sm" title="바코드 추가">＋바코드</button>
+        <button id="btnAddImage" class="btn sm" title="이미지 파일 직접 추가">＋이미지 파일</button>
         <input type="file" id="fileImg" accept="image/*" hidden>
-        <button id="btnDelete" class="btn danger" title="선택 삭제 (Delete)">삭제</button>
-        <button id="btnFront" class="btn" title="맨 앞으로">앞</button>
-        <button id="btnBack" class="btn" title="맨 뒤로">뒤</button>
       </div>
-      <div class="tgroup" id="fontGroup">
-        <select id="selFont">
-          <option>Arial</option>
-          <option>Helvetica</option>
-          <option>Times New Roman</option>
-          <option>Courier New</option>
-          <option>Tahoma</option>
-          <option>Verdana</option>
-          <option value="Malgun Gothic">맑은 고딕</option>
-          <option value="Batang">바탕</option>
-          <option value="Gulim">굴림</option>
-        </select>
-        <input type="number" id="inpFontSize" value="8" min="2" max="72" step="0.5" title="크기(pt)">
-        <button id="btnBold" class="btn tog" title="굵게"><b>B</b></button>
-        <button id="btnItalic" class="btn tog" title="기울임"><i>I</i></button>
-        <label class="mini">자간</label>
-        <input type="number" id="inpSpacing" value="0" min="-5" max="20" step="0.1" title="자간(pt)">
-        <select id="selAlign" title="문단 정렬">
-          <option value="left">좌</option>
-          <option value="center">중앙</option>
-          <option value="right">우</option>
-        </select>
+
+      <div class="tgrp" id="tgrpArrange">
+        <button class="btn sm icon" data-align="left"    title="왼쪽 맞춤">⌐</button>
+        <button class="btn sm icon" data-align="hcenter" title="가로 가운데 맞춤">≡</button>
+        <button class="btn sm icon" data-align="right"   title="오른쪽 맞춤">¬</button>
+        <button class="btn sm icon" data-align="top"     title="위 맞춤">⌶</button>
+        <button class="btn sm icon" data-align="vcenter" title="세로 가운데 맞춤">≣</button>
+        <button class="btn sm icon" data-align="bottom"  title="아래 맞춤">⌷</button>
+        <button class="btn sm icon" data-dist="h" title="가로 균등 분배">↔</button>
+        <button class="btn sm icon" data-dist="v" title="세로 균등 분배">↕</button>
+        <button id="btnFront" class="btn sm icon" title="맨 앞으로">⬆</button>
+        <button id="btnBack"  class="btn sm icon" title="맨 뒤로">⬇</button>
+        <button id="btnDup"   class="btn sm icon" title="복제 (Ctrl+D)">⧉</button>
+        <button id="btnDelete" class="btn sm icon danger" title="삭제 (Delete)">🗑</button>
       </div>
-      <div class="tgroup">
-        <label class="mini">객체 정렬</label>
-        <select id="selFit" title="슬롯 내 정렬 (종횡비 고정)">
-          <option value="left">좌측</option>
-          <option value="center" selected>중앙</option>
-          <option value="right">우측</option>
-        </select>
-        <button id="btnZoomFit" class="btn" title="화면 맞춤 (Ctrl+0)">맞춤</button>
-        <span id="zoomInfo" class="mini"></span>
+
+      <div class="tgrp" id="tgrpView">
+        <button id="btnUndo" class="btn sm icon" title="실행 취소 (Ctrl+Z)">↶</button>
+        <button id="btnRedo" class="btn sm icon" title="다시 실행 (Ctrl+Shift+Z)">↷</button>
+        <button id="btnSnap" class="btn sm on" title="맞춤 안내선 (스냅)">스냅</button>
+        <button id="btnGrid" class="btn sm" title="격자 표시">격자</button>
+        <button id="btnRuler" class="btn sm on" title="눈금자">눈금</button>
+        <button id="btnLink" class="btn sm" title="같은 데이터를 쓰는 객체를 색으로 묶어 보여줍니다">링크 보기</button>
+      </div>
+
+      <div class="tgrp">
+        <button id="btnZoomOut" class="btn sm icon" title="축소">−</button>
+        <select id="selZoom" style="width:auto;min-width:78px" title="배율"></select>
+        <button id="btnZoomIn" class="btn sm icon" title="확대">＋</button>
+        <button id="btnZoomFit" class="btn sm" title="화면 맞춤 (Ctrl+0)">맞춤</button>
+      </div>
+
+      <div class="tgrp">
+        <label class="mini" for="inpLabelW">용지</label>
+        <input type="number" id="inpLabelW" value="297" min="5" max="2000" step="0.5" title="가로(mm)">
+        <span class="mini">×</span>
+        <input type="number" id="inpLabelH" value="420" min="5" max="2000" step="0.5" title="세로(mm)">
+        <span class="mini">mm</span>
       </div>
     </div>
 
     <div id="stageWrap">
-      <canvas id="stage"></canvas>
-      <!-- 선택 객체 속성 -->
-      <div id="propBox" class="hidden">
-        <div class="prophead" id="propTitle">객체</div>
-        <div class="grid4">
-          <label>X</label><input type="number" id="propX" step="0.1">
-          <label>Y</label><input type="number" id="propY" step="0.1">
-          <label>W</label><input type="number" id="propW" step="0.1">
-          <label>H</label><input type="number" id="propH" step="0.1">
-        </div>
-        <div id="propTextWrap">
-          <label class="mini">내용 (플레이스홀더: {LOT} {SN} {MFG} {EXP} {REF} {PRODUCT} {MDR} {UDI_L1} {UDI_L2} {@열문자} 등)</label>
-          <textarea id="propText" rows="3"></textarea>
-        </div>
-        <div id="propBcWrap">
-          <label class="mini">바코드 데이터</label>
-          <select id="propBinding">
-            <option value="UDI_FULL">UDI 전체 (01+10+17+240+21)</option>
-            <option value="UDI_L1">UDI 1행 (01+10)</option>
-            <option value="UDI_L2">UDI 2행 (17+240+21)</option>
-            <option value="GTIN01">UDI-DI (01만)</option>
-          </select>
-        </div>
-        <div id="propSrcWrap">
-          <label class="mini">이미지 소스 (DB 필드)</label>
-          <select id="propSource">
-            <option value="">(수동 파일)</option>
-            <option value="IMG_NAME1">제품명 한줄 그림 (J)</option>
-            <option value="IMG_NAME2">제품명 두줄 그림 (K)</option>
-            <option value="IMG_STENT">Stent Picture (O)</option>
-            <option value="IMG_DELIVERY">Delivery Picture (P)</option>
-            <option value="IMG_AM">STENT OD 그림 (AM)</option>
-            <option value="IMG_AP">CI 그림 (AP)</option>
-          </select>
-          <div class="hint" id="propFileName"></div>
-        </div>
+      <canvas id="stage" tabindex="0"></canvas>
+      <div id="stageOverlay">
+        <span class="ovl" id="ovlPos">—</span>
+        <span class="ovl" id="ovlSel" hidden></span>
       </div>
     </div>
   </main>
+
+  <!-- ══════════════════ 우측 인스펙터 ══════════════════ -->
+  <aside id="inspector">
+    <div class="insp-tabs">
+      <button data-pane="props" class="on">속성</button>
+      <button data-pane="tree">객체 <span id="treeCount" class="mini"></span></button>
+    </div>
+
+    <div class="insp-pane on" id="paneProps">
+      <div class="insp-empty" id="propsEmpty">
+        캔버스에서 객체를 선택하면<br>여기에 속성이 나타납니다.
+        <div style="margin-top:12px" class="mini">잠금이 켜져 있으면 선택할 수 없습니다.<br>편집하려면 상단 <span class="kbd">🔒 잠금</span>을 끄세요.</div>
+      </div>
+
+      <div id="propsBody" hidden>
+        <div class="insp-title"><span id="propIcon">T</span><span id="propTitle">객체</span><span class="badge" id="propBadge" hidden></span></div>
+
+        <!-- 공통: 이름 · 위치 · 크기 -->
+        <section class="gbox">
+          <div class="legend">위치와 크기 <span class="sub">mm</span></div>
+          <div class="grid2" style="margin-bottom:6px">
+            <label for="propName">이름</label>
+            <input type="text" id="propName" placeholder="(자동)">
+          </div>
+          <div class="grid4">
+            <label for="propX">X</label><input type="number" id="propX" step="0.1">
+            <label for="propY">Y</label><input type="number" id="propY" step="0.1">
+            <label for="propW">W</label><input type="number" id="propW" step="0.1">
+            <label for="propH">H</label><input type="number" id="propH" step="0.1">
+          </div>
+          <div class="row" style="margin-top:7px">
+            <label class="chk"><input type="checkbox" id="propLocked"> 잠금</label>
+            <label class="chk"><input type="checkbox" id="propVisible" checked> 표시</label>
+          </div>
+        </section>
+
+        <!-- 텍스트 -->
+        <div id="propTextWrap" hidden>
+          <section class="gbox">
+            <div class="legend">내용</div>
+            <textarea id="propText" rows="3" class="mono" placeholder="{PRODUCT}"></textarea>
+            <div class="row" style="margin-top:5px">
+              <select id="selPlaceholder" style="flex:1" title="플레이스홀더 삽입"></select>
+              <button id="btnInsertPh" class="btn sm">삽입</button>
+            </div>
+            <div class="hint" id="propTextPreview" style="margin-top:5px"></div>
+          </section>
+
+          <section class="gbox">
+            <div class="legend">글꼴</div>
+            <div class="row">
+              <select id="selFont" style="flex:1"></select>
+              <input type="number" id="inpFontSize" min="2" max="200" step="0.5" style="width:62px" title="크기(pt)">
+              <span class="mini">pt</span>
+            </div>
+            <div class="row">
+              <button id="btnBold" class="btn sm icon" title="굵게 (Ctrl+B)"><b>B</b></button>
+              <button id="btnItalic" class="btn sm icon" title="기울임 (Ctrl+I)"><i>I</i></button>
+              <span class="mini" style="margin-left:6px">색</span>
+              <input type="color" id="propColor" style="width:34px;min-height:26px;padding:1px">
+              <span class="spacer"></span>
+              <label class="chk" title="영역을 넘치면 자동으로 글자를 줄입니다"><input type="checkbox" id="chkAutoShrink"> 자동 축소</label>
+            </div>
+
+            <div class="grid2" style="margin-top:7px">
+              <label for="inpLetterSpacing" title="글자와 글자 사이 간격">자간</label>
+              <div class="row" style="margin:0">
+                <input type="range" id="rngLetterSpacing" min="-2" max="10" step="0.1" style="flex:1">
+                <input type="number" id="inpLetterSpacing" min="-2" max="20" step="0.05" style="width:62px">
+                <span class="mini">pt</span>
+              </div>
+
+              <label for="inpWordSpacing" title="낱말과 낱말 사이 간격">어간</label>
+              <div class="row" style="margin:0">
+                <input type="range" id="rngWordSpacing" min="-2" max="20" step="0.1" style="flex:1">
+                <input type="number" id="inpWordSpacing" min="-5" max="40" step="0.05" style="width:62px">
+                <span class="mini">pt</span>
+              </div>
+
+              <label for="inpLineHeight" title="줄과 줄 사이 간격 (글자 크기 배수)">행간</label>
+              <div class="row" style="margin:0">
+                <input type="range" id="rngLineHeight" min="0.7" max="3" step="0.05" style="flex:1">
+                <input type="number" id="inpLineHeight" min="0.5" max="5" step="0.05" style="width:62px">
+                <span class="mini">배</span>
+              </div>
+
+              <label for="inpHScale" title="글자의 가로 비율. 100%가 원본, 낮추면 홀쭉해집니다">장평</label>
+              <div class="row" style="margin:0">
+                <input type="range" id="rngHScale" min="40" max="200" step="1" style="flex:1">
+                <input type="number" id="inpHScale" min="20" max="400" step="1" style="width:62px">
+                <span class="mini">%</span>
+              </div>
+            </div>
+
+            <div class="row" style="margin-top:6px">
+              <label class="chk" title="글자 쌍에 따라 간격을 자동으로 다듬습니다 (예: AV, To)">
+                <input type="checkbox" id="chkKerning" checked> 커닝
+              </label>
+              <span class="mini" id="kerningHint"></span>
+            </div>
+
+            <div class="row" style="margin-top:7px">
+              <span class="mini">정렬</span>
+              <select id="selAlign" style="width:auto">
+                <option value="left">왼쪽</option><option value="center">가운데</option>
+                <option value="right">오른쪽</option><option value="justify">양쪽</option>
+              </select>
+              <select id="selVAlign" style="width:auto">
+                <option value="top">위</option><option value="middle">중간</option><option value="bottom">아래</option>
+              </select>
+              <label class="chk" style="margin-left:auto"><input type="checkbox" id="chkWrap" checked> 줄바꿈</label>
+            </div>
+          </section>
+        </div>
+
+        <!-- 데이터 링크 -->
+        <section class="gbox" id="propLinkWrap" hidden>
+          <div class="legend">데이터 링크 <span class="sub" id="linkSummary"></span></div>
+          <div id="linkList"></div>
+          <div class="hint" style="margin-top:5px">같은 데이터를 쓰는 객체는 캔버스에서 주황 점선으로 함께 표시됩니다.</div>
+        </section>
+
+        <!-- 이미지 -->
+        <div id="propImgWrap" hidden>
+          <section class="gbox">
+            <div class="legend">이미지 소스</div>
+            <select id="propSource"></select>
+            <div class="hint" id="propFileName" style="margin-top:5px"></div>
+            <button id="btnPickImgFile" class="btn sm block" style="margin-top:6px">파일 직접 지정…</button>
+          </section>
+          <section class="gbox">
+            <div class="legend">맞춤</div>
+            <div class="row">
+              <span class="mini">방식</span>
+              <select id="selImgFitMode" style="width:auto">
+                <option value="contain">영역 안에 (종횡비 유지)</option>
+                <option value="cover">영역 채움 (잘림)</option>
+                <option value="stretch">늘이기 (종횡비 무시)</option>
+              </select>
+            </div>
+            <div class="row">
+              <span class="mini">가로</span>
+              <select id="selImgFit" style="width:auto">
+                <option value="left">왼쪽</option><option value="center">가운데</option><option value="right">오른쪽</option>
+              </select>
+              <span class="mini">세로</span>
+              <select id="selImgVFit" style="width:auto">
+                <option value="top">위</option><option value="middle">중간</option><option value="bottom">아래</option>
+              </select>
+            </div>
+          </section>
+        </div>
+
+        <!-- 바코드 -->
+        <div id="propBcWrap" hidden>
+          <section class="gbox">
+            <div class="legend">바코드</div>
+            <div class="row"><span class="mini" style="width:44px">종류</span><select id="selSymbology" style="flex:1"></select></div>
+            <div class="row"><span class="mini" style="width:44px">데이터</span>
+              <select id="selBcSource" style="flex:1">
+                <option value="field">DB/계산 필드</option>
+                <option value="expression">직접 입력 (플레이스홀더)</option>
+                <option value="object">다른 객체의 텍스트 링크</option>
+              </select>
+            </div>
+            <div id="bcFieldWrap"><select id="selBcBinding"></select></div>
+            <div id="bcExprWrap" hidden>
+              <textarea id="inpBcExpr" rows="2" class="mono" placeholder="(01){GTIN}(10){LOT}"></textarea>
+            </div>
+            <div id="bcObjWrap" hidden><select id="selBcLink"></select></div>
+            <div class="hint mono" id="bcPreview" style="margin-top:6px;word-break:break-all"></div>
+            <div class="hint" id="bcIssues" style="margin-top:4px"></div>
+          </section>
+          <section class="gbox">
+            <div class="legend">모양</div>
+            <div class="row">
+              <label class="chk"><input type="checkbox" id="chkHri"> 사람이 읽는 문자(HRI)</label>
+            </div>
+            <div class="row">
+              <span class="mini">크기</span>
+              <select id="selBcFitMode" style="width:auto">
+                <option value="module">모듈 정수 배율 (선명·권장)</option>
+                <option value="stretch">영역 꽉 채움</option>
+              </select>
+            </div>
+            <div class="row">
+              <span class="mini">정렬</span>
+              <select id="selBcFit" style="width:auto">
+                <option value="left">왼쪽</option><option value="center">가운데</option><option value="right">오른쪽</option>
+              </select>
+              <select id="selBcVFit" style="width:auto">
+                <option value="top">위</option><option value="middle">중간</option><option value="bottom">아래</option>
+              </select>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div class="insp-pane" id="paneTree">
+      <div class="row" style="margin-bottom:7px">
+        <input type="search" id="treeSearch" placeholder="객체 검색" style="flex:1">
+      </div>
+      <div id="objTree"></div>
+    </div>
+  </aside>
+
+  <!-- ══════════════════ 연속 작업 큐 ══════════════════ -->
+  <section id="drawer">
+    <div id="drawerHead">
+      <span class="caret">▶</span>
+      <span class="ttl">연속 작업 큐</span>
+      <span class="counter" id="cntTotal"><b>0</b>건</span>
+      <span class="counter ok" id="cntDone" hidden><b>0</b>완료</span>
+      <span class="counter err" id="cntErr" hidden><b>0</b>오류</span>
+      <div class="progress" id="queueProgress" hidden><i></i></div>
+      <span class="mini" id="queueProgressText"></span>
+      <span class="spacer"></span>
+      <button id="btnQPause" class="btn sm" hidden>일시정지</button>
+      <button id="btnQCancel" class="btn sm danger" hidden>중지</button>
+      <span class="mini" id="drawerHint">여러 장을 연속 출력하려면 펼치세요</span>
+    </div>
+
+    <div id="drawerBody">
+      <div id="queueTools">
+        <button id="btnQPaste" class="btn sm" title="엑셀에서 복사한 표를 붙여넣기 (Ctrl+V)">엑셀 붙여넣기</button>
+        <button id="btnQImport" class="btn sm" title="CSV/XLSX 파일 불러오기">파일 불러오기</button>
+        <input type="file" id="fileQueue" accept=".csv,.tsv,.txt,.xlsx,.xls" hidden>
+        <button id="btnQAddRow" class="btn sm">＋ 빈 행</button>
+        <button id="btnQExpandSn" class="btn sm" title="선택 행을 SN 연번으로 펼치기">SN 연번…</button>
+        <span class="appbar-sep"></span>
+        <button id="btnQDup" class="btn sm">복제</button>
+        <button id="btnQDel" class="btn sm danger">행 삭제</button>
+        <button id="btnQClearDone" class="btn sm ghost">완료 행 비우기</button>
+        <button id="btnQClear" class="btn sm ghost danger">전체 비우기</button>
+        <span class="spacer"></span>
+        <span class="mini">출력 방식</span>
+        <select id="selQueueMode" style="width:auto">
+          <option value="separate">라벨마다 개별 PDF</option>
+          <option value="merged">한 PDF에 여러 쪽</option>
+        </select>
+        <button id="btnQExport" class="btn sm ghost" title="큐를 CSV로 저장">CSV 저장</button>
+      </div>
+
+      <div id="queueScroll" class="scroll-thin">
+        <div id="queueEmpty">
+          큐가 비어 있습니다 — 지금은 <b>라벨 1장</b> 작업 모드입니다.<br>
+          왼쪽에서 입력하고 <kbd>Ctrl</kbd>+<kbd>Enter</kbd> 로 행을 쌓거나,
+          엑셀에서 복사한 표를 <kbd>Ctrl</kbd>+<kbd>V</kbd> 로 붙여넣으세요.
+        </div>
+        <table class="queue" id="queueTable" hidden>
+          <thead><tr>
+            <th style="width:26px"><input type="checkbox" id="qCheckAll" title="전체 선택"></th>
+            <th style="width:34px">#</th>
+            <th style="width:110px">품목번호</th>
+            <th style="width:120px">LOT</th>
+            <th style="width:80px">SN</th>
+            <th style="width:128px">제조일</th>
+            <th style="width:64px">개월</th>
+            <th style="width:112px">유효일</th>
+            <th style="width:56px">매수</th>
+            <th style="width:72px">상태</th>
+            <th>메시지 / 파일명</th>
+          </tr></thead>
+          <tbody id="queueBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 상태바 ══════════════════ -->
+  <footer id="statusbar">
+    <span class="st" id="statusLock">🔒 잠금</span>
+    <span class="sep"></span>
+    <span id="statusMsg">준비됨</span>
+    <span class="sep"></span>
+    <span class="st" id="statusZoom">—</span>
+    <span class="sep"></span>
+    <span class="st" id="statusSaved">저장됨</span>
+  </footer>
 </div>
+
+<!-- ══════════════════ 토스트 / 모달 ══════════════════ -->
+<div id="toasts"></div>
+<div id="modalRoot"></div>
 
 <script src="libs/xlsx.full.min.js"></script>
 <script src="libs/bwip-js-min.js"></script>
@@ -215,9 +467,18 @@
 <script src="assets/template_bg.js"></script>
 <script src="js/default_template.js"></script>
 <script src="js/store.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/data.js"></script>
+<script src="js/text.js"></script>
+<script src="js/barcode.js"></script>
+<script src="js/link.js"></script>
 <script src="js/imaging.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/inspector.js"></script>
 <script src="js/exporter.js"></script>
+<script src="js/batch.js"></script>
+<script src="js/zpl.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
