@@ -27,6 +27,8 @@
     locked: true,
     preview: false,
     dirty: false,
+    layoutDirty: false,        // 잠금 해제 상태에서 레이아웃을 바꿨는가 (미검증 서식)
+    restoredQueue: null,       // 이전 세션에서 되살린 큐
     templateName: '기본 A3 라벨 세트',
   };
   let fields = {};
@@ -291,24 +293,51 @@
         box.appendChild(d);
       }
     }
+    // 잠금 해제 상태에서 레이아웃을 건드렸다면 경고를 하나 더 얹는다
+    if (S.layoutDirty) {
+      const d = document.createElement('div');
+      d.className = 'check-item warn';
+      d.innerHTML = '<span class="ic">⚠</span><span class="msg">레이아웃이 수정되었습니다. 검증된 서식이 아닙니다 — 서식으로 저장하거나 되돌린 뒤 출력하세요.</span>';
+      box.insertBefore(d, box.firstChild);
+    }
+
     const sum = $('checkSummary');
-    sum.textContent = pf.errors.length ? `오류 ${pf.errors.length}` : (pf.warnings.length ? `경고 ${pf.warnings.length}` : '통과');
+    sum.textContent = pf.errors.length ? `오류 ${pf.errors.length}` : ((pf.warnings.length || S.layoutDirty) ? `경고 ${pf.warnings.length + (S.layoutDirty ? 1 : 0)}` : '통과');
     sum.style.color = pf.errors.length ? 'var(--fail)' : (pf.warnings.length ? 'var(--warn)' : 'var(--pass)');
   }
 
+  /**
+   * 출력 컨트롤 갱신.
+   * ★ 안전 설계: [이 라벨 1장]과 [큐 N장]은 **언제나 서로 다른 버튼**이다.
+   *   하나의 버튼/단축키가 큐 상태에 따라 1장과 N장을 오가면
+   *   접혀 있는 큐에 어제 행이 남아 있을 때 의도치 않은 대량 출력이 난다
+   *   (전형적인 모드 오류). 그래서 의미를 고정한다.
+   *     Ctrl+P       = 지금 입력한 값으로 1장
+   *     Ctrl+Shift+P = 큐 전체
+   */
   function updatePrintButton() {
     const n = LB.batch.count();
     const total = LB.batch.totalLabels();
-    const btn = $('btnPrint');
-    const blocked = lastPreflight.errors.length > 0 && n === 0;
+    const running = LB.batch.get().running;
     const isZebra = LB.settings.value('output.target', 'pdf') === 'zebra';
-    const what = isZebra ? 'ZEBRA 출력' : 'PDF 출력';
-    btn.textContent = n ? `큐 ${total}장 ${isZebra ? 'ZEBRA 출력' : '출력'}` : what;
-    btn.disabled = blocked || LB.batch.get().running;
+    const verb = isZebra ? 'ZEBRA 출력' : '출력';
+
+    const btn = $('btnPrint');
+    const blocked = lastPreflight.errors.length > 0;
+    btn.textContent = `이 라벨 1장 ${verb}`;
+    btn.disabled = blocked || running;
+
+    const qbtn = $('btnPrintQueue');
+    qbtn.hidden = n === 0;
+    qbtn.textContent = `큐 ${total}장 ${verb}`;
+    qbtn.disabled = running;
+    qbtn.classList.toggle('primary', n > 0);
+    btn.classList.toggle('primary', n === 0);
+
     const hint = $('printHint');
-    if (LB.batch.get().running) hint.textContent = '출력 중…';
-    else if (blocked) { hint.textContent = '오류를 해결해야 출력할 수 있습니다'; hint.className = 'hint err'; }
-    else if (n) { hint.textContent = `큐 ${n}행 · 총 ${total}장`; hint.className = 'hint'; }
+    if (running) { hint.textContent = '출력 중…'; hint.className = 'hint'; }
+    else if (blocked) { hint.textContent = '오류를 해결해야 1장 출력을 할 수 있습니다'; hint.className = 'hint err'; }
+    else if (n) { hint.textContent = `큐 ${n}행 · 총 ${total}장 대기 중`; hint.className = 'hint'; }
     else { hint.textContent = LB.settings.handle('outDir') ? `→ ${LB.settings.dirName('outDir')}` : '저장 폴더 미지정 → 다운로드'; hint.className = 'hint'; }
   }
 
@@ -353,7 +382,7 @@
     saveTimer = setTimeout(async () => {
       try {
         await LB.store.set('template', { label: S.label, objects: S.objects, name: S.templateName });
-        await LB.store.set('session', { inputs: S.inputs, queue: LB.batch.rows(), locked: S.locked });
+        await LB.store.set('session', { inputs: S.inputs, queue: LB.batch.rows(), locked: S.locked, savedAt: new Date().toISOString() });
         S.dirty = false;
         const t = new Date();
         $('statusSaved').textContent = `저장됨 ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
@@ -380,7 +409,10 @@
     const ses = await LB.store.get('session').catch(() => null);
     if (ses) {
       Object.assign(S.inputs, ses.inputs || {});
-      if (Array.isArray(ses.queue) && ses.queue.length) LB.batch.addMany(ses.queue.map(r => Object.assign({}, r, { status: r.status === 'running' ? 'pending' : r.status })));
+      if (Array.isArray(ses.queue) && ses.queue.length) {
+        LB.batch.addMany(ses.queue.map(r => Object.assign({}, r, { status: r.status === 'running' ? 'pending' : r.status })));
+        S.restoredQueue = { n: ses.queue.length, at: ses.savedAt || null };
+      }
       if (ses.locked !== undefined) S.locked = ses.locked;
     }
     if (!S.inputs.mfg) S.inputs.mfg = LB.data.fmtISO(new Date());
@@ -440,6 +472,7 @@
       for (const o of tpl.objects) S.objects.push(o);
       normalizeAll();
       S.templateName = '기본 A3 라벨 세트';
+      S.layoutDirty = false;
       ed.select([]);
       ed.resetHistory();
       syncInputsToUi();
@@ -485,7 +518,9 @@
     } else list.push(item);
     await LB.store.set('templates', list);
     S.templateName = name;
+    S.layoutDirty = false;
     await refreshTemplateList();
+    updatePrintButton();
     U().toast(`서식 "${name}" 저장됨`, 'ok');
     U().status(`서식 저장: ${name}`);
   }
@@ -500,6 +535,7 @@
     for (const o of t.objects) S.objects.push(JSON.parse(JSON.stringify(o)));
     normalizeAll();
     S.templateName = name;
+    S.layoutDirty = false;
     ed.select([]); ed.resetHistory();
     syncInputsToUi();
     refresh(); ed.zoomFit();
@@ -673,6 +709,36 @@
       U().toast('샘플 데이터를 불러왔습니다. 실제 DB와 이미지 폴더는 ⚙ 설정에서 지정하세요.', 'ok', 5000);
     } catch (e) {
       U().toast('샘플 데이터를 불러오지 못했습니다: ' + e.message, 'err');
+    }
+  }
+
+  /**
+   * 이전 세션에서 큐가 되살아났으면 분명히 알린다.
+   * 어제 남은 행을 모른 채 [큐 N장 출력]을 누르면 대량 오출력이 된다.
+   */
+  function noticeRestoredQueue() {
+    const r = S.restoredQueue;
+    if (!r || !r.n) return;
+    S.restoredQueue = null;
+    const pend = LB.batch.rows().filter(x => x.status !== 'done').length;
+    if (!pend) return;
+    const when = r.at ? new Date(r.at) : null;
+    const old = when && (Date.now() - when.getTime() > 6 * 3600 * 1000);
+    const ago = when ? when.toLocaleString() : '이전 작업';
+    openDrawer(true);
+    U().status(`이전 작업 큐 ${pend}행이 남아 있습니다 (${ago}). 출력 전에 확인하세요.`, 'warn');
+    U().toast(`이전 작업 큐 ${pend}행이 남아 있습니다.`, old ? 'warn' : null, 6000);
+    if (old) {
+      U().confirm(`${ago}에 저장된 작업 큐 ${pend}행이 남아 있습니다.\n계속 이어서 쓸까요?`, {
+        title: '이전 작업 큐 확인',
+        okLabel: '이어서 쓰기', cancelLabel: '큐 비우기',
+      }).then(keep => {
+        if (!keep) {
+          LB.batch.clear(); selectedRows.clear(); S.activeQueueId = null;
+          revalidateQueue();
+          U().status('이전 작업 큐를 비웠습니다.');
+        }
+      });
     }
   }
 
@@ -869,11 +935,17 @@
 
   /* ================= 출력 ================= */
 
-  async function doPrint() {
+  /** 지금 입력한 값으로 1장. 큐 상태와 무관하다. */
+  async function doPrintSingle() {
     if (LB.batch.get().running) return;
-    const n = LB.batch.count();
-    if (LB.settings.value('output.target', 'pdf') === 'zebra') return printZebra(n);
-    if (n === 0) return printSingle();
+    if (LB.settings.value('output.target', 'pdf') === 'zebra') return printZebra(0);
+    return printSingle();
+  }
+  /** 큐 전체. 큐가 비어 있으면 아무 일도 하지 않는다. */
+  async function doPrintQueue() {
+    if (LB.batch.get().running) return;
+    if (!LB.batch.count()) { U().toast('큐가 비어 있습니다.', 'warn'); return; }
+    if (LB.settings.value('output.target', 'pdf') === 'zebra') return printZebra(LB.batch.count());
     return printQueue();
   }
 
@@ -1950,7 +2022,8 @@
     $('btnQCancel').onclick = () => { LB.batch.cancel(); U().status('출력 중지를 요청했습니다…', 'warn'); };
 
     /* --- 출력 --- */
-    $('btnPrint').onclick = () => doPrint();
+    $('btnPrint').onclick = () => doPrintSingle();
+    $('btnPrintQueue').onclick = () => doPrintQueue();
 
     /* --- 앱바 --- */
     $('btnLock').onclick = () => setLocked(!S.locked);
@@ -2059,7 +2132,7 @@
       if (mod && e.key === 'Enter') { e.preventDefault(); addCurrentToQueue(); return; }
       if (mod && e.key.toLowerCase() === 'p') {
         e.preventDefault();
-        if (e.shiftKey) printSingle(); else doPrint();
+        if (e.shiftKey) doPrintQueue(); else doPrintSingle();
         return;
       }
       if (mod && e.key === ',') { e.preventDefault(); openSettings(); return; }
@@ -2288,7 +2361,10 @@
     ed.resolver = resolveText;
     ed.barcodeCtx = () => ({ fields, objects: S.objects, resolveText });
     ed.onSelectionChange = () => LB.inspector.refresh();
-    ed.onModelChange = () => { scheduleSave(); renderChecks(); LB.inspector.refresh(); };
+    ed.onModelChange = () => {
+      if (!S.locked) S.layoutDirty = true;     // 잠금 해제 상태의 변경은 '미검증 서식'
+      scheduleSave(); renderChecks(); LB.inspector.refresh();
+    };
     ed.onViewChange = () => {
       const z = Math.round(ed.zoomPercent);
       $('statusZoom').textContent = `${S.label.w}×${S.label.h}mm · ${z}%`;
@@ -2336,12 +2412,15 @@
     await refreshTemplateList();
     await restore();
     renderQueue();
+    noticeRestoredQueue();
     U().status('준비됨');
     $('inpItem').focus();
   });
 
   // 개발/테스트용 진입점
   window.__LB_APP = { S, get fields() { return fields; }, get row() { return row; }, get editor() { return ed; },
-    refresh, loadDbFromFile, loadSampleData, addCurrentToQueue, pasteToQueue, doPrint, printSingle, printQueue,
-    openSettings, setLocked, normalizeAll, renderQueue, revalidateQueue, get preflight() { return lastPreflight; } };
+    refresh, loadDbFromFile, loadSampleData, addCurrentToQueue, pasteToQueue,
+    doPrintSingle, doPrintQueue, printSingle, printQueue, printZebra,
+    openSettings, setLocked, normalizeAll, renderQueue, revalidateQueue,
+    get preflight() { return lastPreflight; } };
 })();
