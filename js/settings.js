@@ -22,9 +22,11 @@ LB.settings = (() => {
   /* ---------------- 기본값 ---------------- */
   const DEFAULTS = {
     paths: {
-      dbFileName: '',          // dbDir 안의 파일명
+      dbFileName: '',          // dbDir 안의 파일명 (일반)
+      dbFileNameBsc: '',       // BSC 출고(일본)용 라벨DB 파일명
       dbAutoLoad: true,        // 시작 시 자동 로딩
-      dbLastModified: 0,       // 변경 감지용
+      dbLastModified: 0,       // 변경 감지용 (일반)
+      dbLastModifiedBsc: 0,    // 변경 감지용 (BSC)
     },
     output: {
       dpi: 300,                // 라벨 인쇄 표준. 600은 고정밀이 필요할 때만.
@@ -56,9 +58,13 @@ LB.settings = (() => {
       outline: false,
       repeat: 'fill',
     },
+    /* 출고처에 따라 쓰는 라벨DB가 다르다. 열 매칭도 DB마다 따로 둔다. */
     data: {
-      fieldMap: {},            // 필드 → DB 열 (기본값과 다른 것만 저장)
-      keyCol: 'H',             // 품목코드를 찾을 열
+      profile: 'general',      // 'general' | 'bsc'
+      profiles: {
+        general: { fieldMap: {}, keyCol: 'H' },
+        bsc: { fieldMap: {}, keyCol: 'H' },
+      },
     },
     textDefaults: {
       font: 'Arial', sizePt: 8, letterSpacing: 0, lineHeight: 1.15, hScale: 100,
@@ -144,8 +150,20 @@ LB.settings = (() => {
     saveTimer = setTimeout(() => { LB.store.set('settings', state).catch(() => {}); }, 300);
   }
 
+  /** 예전 구조(단일 열매칭)를 프로필 구조로 옮긴다 */
+  function migrate(saved) {
+    if (!saved || !saved.data) return saved;
+    const d = saved.data;
+    if (!d.profiles && (d.fieldMap || d.keyCol)) {
+      d.profiles = { general: { fieldMap: d.fieldMap || {}, keyCol: d.keyCol || 'H' },
+                     bsc: { fieldMap: {}, keyCol: d.keyCol || 'H' } };
+      delete d.fieldMap; delete d.keyCol;
+    }
+    return saved;
+  }
+
   async function load() {
-    const saved = await LB.store.get('settings').catch(() => null);
+    const saved = migrate(await LB.store.get('settings').catch(() => null));
     if (saved) deepMerge(state, saved);
     const dirs = await LB.store.get('dirs').catch(() => null);
     if (dirs) {
@@ -189,6 +207,7 @@ LB.settings = (() => {
         startIn: handles[kind] || 'documents',
       });
       handles[kind] = h;
+      if (kind === 'imgDir') clearImageNameCache();
       await saveHandles();
       emit('paths.' + kind, h.name);
       return { ok: true, name: h.name };
@@ -200,6 +219,7 @@ LB.settings = (() => {
 
   async function clearDir(kind) {
     handles[kind] = null;
+    if (kind === 'imgDir') clearImageNameCache();
     if (kind === 'dbDir') { state.paths.dbFileName = ''; state.paths.dbLastModified = 0; save(); }
     await saveHandles();
     emit('paths.' + kind, '');
@@ -250,6 +270,28 @@ LB.settings = (() => {
   /* ---------------- 파일 읽기/쓰기 ---------------- */
 
   /** 이미지 폴더에서 파일 하나 읽기 */
+  /* 이미지 폴더의 이름 목록 캐시 — 대소문자가 다른 파일명을 찾는 데 쓴다.
+   * 라벨DB에는 E.JPG / e.JPG / E.jpg 가 섞여 있고 Windows 공유 폴더는
+   * 대소문자를 구분하지 않지만, 브라우저의 getFileHandle 은 구분한다. */
+  let imgNameCache = null;      // Map<소문자이름, 실제이름>
+  function clearImageNameCache() { imgNameCache = null; }
+
+  async function imageNameMap() {
+    if (imgNameCache) return imgNameCache;
+    const h = handles.imgDir;
+    if (!h) return null;
+    const m = new Map();
+    try {
+      for await (const [name, entry] of h.entries()) {
+        if (entry.kind !== 'file') continue;
+        const k = name.toLowerCase();
+        if (!m.has(k)) m.set(k, name);
+      }
+    } catch (_) { return null; }
+    imgNameCache = m;
+    return m;
+  }
+
   async function readImage(fileName) {
     const h = handles.imgDir;
     if (!h) throw new Error('이미지 폴더가 지정되지 않았습니다. 설정에서 지정하세요.');
@@ -258,9 +300,18 @@ LB.settings = (() => {
       const fh = await h.getFileHandle(fileName);
       return await fh.getFile();
     } catch (e) {
-      if (e && e.name === 'NotFoundError') throw new Error(`파일 없음: ${fileName}`);
-      throw e;
+      if (!e || e.name !== 'NotFoundError') throw e;
     }
+    // 대소문자만 다른 파일이 있으면 그것을 쓴다
+    const m = await imageNameMap();
+    const real = m && m.get(String(fileName).toLowerCase());
+    if (real && real !== fileName) {
+      try {
+        const fh = await h.getFileHandle(real);
+        return await fh.getFile();
+      } catch (_) { /* 아래에서 실패로 처리 */ }
+    }
+    throw new Error(`파일 없음: ${fileName}`);
   }
 
   /** 이미지 폴더의 파일 목록 (진단/자동완성용) */
@@ -294,21 +345,24 @@ LB.settings = (() => {
    * 지정된 라벨DB 파일을 읽는다.
    * @returns {{file:File, changed:boolean}|null}  changed=false면 캐시를 그대로 써도 된다
    */
-  async function readDbFile() {
+  const dbNameKey = (profile) => (profile === 'bsc' ? 'dbFileNameBsc' : 'dbFileName');
+  const dbStampKey = (profile) => (profile === 'bsc' ? 'dbLastModifiedBsc' : 'dbLastModified');
+
+  async function readDbFile(profile) {
     const h = handles.dbDir;
-    const name = state.paths.dbFileName;
+    const name = state.paths[dbNameKey(profile)];
     if (!h || !name) return null;
     if (await permission('dbDir') !== 'granted') return null;
     let fh;
     try { fh = await h.getFileHandle(name); }
     catch (_) { return null; }
     const file = await fh.getFile();
-    const changed = file.lastModified !== state.paths.dbLastModified;
+    const changed = file.lastModified !== state.paths[dbStampKey(profile)];
     return { file, changed };
   }
 
-  function markDbLoaded(file) {
-    state.paths.dbLastModified = file ? file.lastModified : 0;
+  function markDbLoaded(file, profile) {
+    state.paths[dbStampKey(profile)] = file ? file.lastModified : 0;
     save();
   }
 
@@ -377,8 +431,8 @@ LB.settings = (() => {
     get, value, put, onChange, load, save, reset,
     handle, dirName, pickDir, clearDir, permission, requestPermission,
     needsReconnect, reconnectAll,
-    readImage, listImages, listDbFiles, readDbFile, markDbLoaded,
-    writeOutput, uniqueName, fileExists,
+    readImage, listImages, clearImageNameCache, listDbFiles, readDbFile, markDbLoaded,
+    writeOutput, uniqueName, fileExists, dbNameKey,
     exportJson, importJson,
   };
 })();

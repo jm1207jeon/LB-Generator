@@ -285,7 +285,7 @@ LB.mapper = (() => {
     body.appendChild(foot);
 
     const res = await U().modal({
-      title: '데이터 매칭 편집기', body, wide: true, defaultValue: null, noAutofocus: true,
+      title: `데이터 매칭 편집기 — ${LB.data.profileDef().n}`, body, wide: true, defaultValue: null, noAutofocus: true,
       onMount: () => { setTimeout(() => { selectField('__KEY__'); paintGrid(); }, 30); },
       buttons: [
         { label: '기본값으로', value: 'reset' },
@@ -313,9 +313,11 @@ LB.mapper = (() => {
     return false;
   }
 
+  /** 열 매칭은 DB 프로필(일반 / BSC)마다 따로 저장한다 */
   async function persist() {
-    LB.settings.put('data.fieldMap', LB.data.fieldMapDiff());
-    LB.settings.put('data.keyCol', LB.data.keyCol());
+    const pf = LB.data.profile();
+    LB.settings.put(`data.profiles.${pf}.fieldMap`, LB.data.fieldMapDiff());
+    LB.settings.put(`data.profiles.${pf}.keyCol`, LB.data.keyCol());
   }
 
   /**

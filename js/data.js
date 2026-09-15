@@ -33,29 +33,78 @@ LB.data = (() => {
     // 이미지 파일명
     IMG_NAME1: 'J', IMG_NAME2: 'K', IMG_STENT: 'O', IMG_DELIVERY: 'P',
     IMG_AM: 'AM', IMG_AP: 'AP',
+    // 일반 DB에는 없고 BSC DB에만 있는 값
+    UPN: '', CATALOG: '', STENT_TYPE: '', REF_JP: '',
   };
 
-  /* 실제로 쓰이는 매핑 (기본값에서 출발해 사용자 설정으로 덮어쓴다) */
+  /* ---------------- DB 프로필 ----------------
+   * 같은 제품이라도 출고처에 따라 쓰는 라벨DB가 다르다.
+   *   일반  — 01.라벨출력DB
+   *   BSC   — 02.라벨출력DB_BSC (일본 출고). AL열부터 열 구성이 한 칸씩 밀려 있고
+   *           AQ·AR·AS 에 UPN / Catalog or Ref # / 스텐트구분 이 따로 있다.
+   *           대신 AT열 이후(제품명 텍스트·문구류)가 통째로 없다.
+   * 아래 map 은 기본(일반) 매핑에서 달라지는 열만 적은 것이다.
+   */
+  /* BSC 파일은 머리글 줄이 예전 양식 그대로라 실제 값과 맞지 않는 열이 있다.
+   * 그래서 아래 매핑은 **머리글이 아니라 실제 값을 확인해서** 정한 것만 넣었고,
+   * 확신할 수 없는 열은 일부러 비워 두었다. 빈 항목은 '사용 안 함' 으로 표시되므로
+   * 엉뚱한 값이 라벨에 조용히 찍히는 일은 없다.
+   * 나머지는 [데이터 매칭 편집기]에서 실제 값을 보며 지정한다. */
+  const BSC_FIELD_COLS = {
+    PRODUCT: 'J',        // 제품명 텍스트 (BSC는 J가 그림이 아니라 글자다)
+    IMG_NAME1: '',       // 1줄 제품명 그림 열이 없다
+    IMG_NAME2: 'K',      // 2줄 제품명 그림 파일명
+    REF_JP: 'AM',        // 일본/말레이시아 형명 (예: MECJ1806X)
+    UPN: 'AQ',           // BSC UPN (예: M00523870)
+    CATALOG: 'AR',       // Catalog or Ref # (예: 2387)
+    STENT_TYPE: 'AS',    // 스텐트구분 (예: C type)
+    // 값을 확인하지 못했거나 BSC DB에 없는 항목 — 쓰지 않는다
+    IMG_AM: '', IMG_AP: '', UKR: '', DOMESTIC: '',
+    MDD_NOTE: '', TERM: '', MDD_LIFE: '', LIFETIME: '',
+    PIC_NOTE: '', DEVICE: '', MDR: '', COVER: '',
+  };
+
+  const PROFILES = [
+    { v: 'general', n: '일반', file: '01.라벨출력DB', map: {},
+      desc: '국내·수출 공통 라벨DB' },
+    { v: 'bsc', n: 'BSC 출고 (일본)', file: '02.라벨출력DB_BSC', map: BSC_FIELD_COLS,
+      desc: 'BSC 전용 라벨DB — AL열부터 열 구성이 다르고 UPN·Catalog 열이 있습니다' },
+  ];
+  let PROFILE = 'general';
+  function profiles() { return PROFILES.slice(); }
+  function profile() { return PROFILE; }
+  function profileDef(v) { return PROFILES.find(p => p.v === (v || PROFILE)) || PROFILES[0]; }
+  function setProfile(v) {
+    PROFILE = PROFILES.some(p => p.v === v) ? v : 'general';
+    return PROFILE;
+  }
+  /** 해당 프로필의 기본 열 매핑 (사용자 수정 전) */
+  function baseFieldCols(v) {
+    return Object.assign({}, DEFAULT_FIELD_COLS, profileDef(v).map);
+  }
+
+  /* 실제로 쓰이는 매핑 (프로필 기본값에서 출발해 사용자 설정으로 덮어쓴다) */
   const FIELD_COLS = Object.assign({}, DEFAULT_FIELD_COLS);
 
   /** 사용자 매핑 적용. 값이 빈 문자열이면 그 필드는 사용하지 않는다. */
   function applyFieldMap(map) {
+    const base = baseFieldCols();
     for (const k in FIELD_COLS) delete FIELD_COLS[k];
-    Object.assign(FIELD_COLS, DEFAULT_FIELD_COLS);
+    Object.assign(FIELD_COLS, base);
     if (map && typeof map === 'object') {
       for (const k in map) {
         if (!(k in DEFAULT_FIELD_COLS)) continue;
-        const v = String(map[k] || '').trim().toUpperCase();
-        FIELD_COLS[k] = v;
+        FIELD_COLS[k] = String(map[k] || '').trim().toUpperCase();
       }
     }
     return FIELD_COLS;
   }
-  /** 기본값과 다른 항목만 (설정 저장용) */
+  /** 프로필 기본값과 다른 항목만 (설정 저장용) */
   function fieldMapDiff() {
+    const base = baseFieldCols();
     const out = {};
-    for (const k in DEFAULT_FIELD_COLS) {
-      if (FIELD_COLS[k] !== DEFAULT_FIELD_COLS[k]) out[k] = FIELD_COLS[k];
+    for (const k in base) {
+      if (FIELD_COLS[k] !== base[k]) out[k] = FIELD_COLS[k];
     }
     return out;
   }
@@ -69,6 +118,7 @@ LB.data = (() => {
     { g: '규제 · 문구', keys: ['LIFETIME', 'MDD_LIFE', 'PIC_NOTE', 'COVER', 'MDD_NOTE', 'TERM', 'DEVICE'] },
     { g: '국가별 인허가', keys: ['KOREA_NO', 'KOREA_NAME', 'JAPAN_NO', 'JAPAN_NAME', 'CHINA_NO', 'CHINA_STD', 'CHINA_NAME', 'UKR', 'DOMESTIC'] },
     { g: '이미지 파일명', keys: ['IMG_NAME1', 'IMG_NAME2', 'IMG_STENT', 'IMG_DELIVERY', 'IMG_AM', 'IMG_AP'] },
+    { g: 'BSC 전용', keys: ['REF_JP', 'UPN', 'CATALOG', 'STENT_TYPE'] },
   ];
 
   /* ---------------- 열 문자 유틸 ---------------- */
@@ -102,6 +152,11 @@ LB.data = (() => {
     UDI_FULL: 'UDI 전체', UDI_L1: 'UDI 1행', UDI_L2: 'UDI 2행', GTIN01: 'UDI-DI (01)',
     IMG_NAME1: '제품명 그림(1줄)', IMG_NAME2: '제품명 그림(2줄)', IMG_STENT: '스텐트 그림',
     IMG_DELIVERY: '딜리버리 그림', IMG_AM: 'STENT OD 그림', IMG_AP: 'CI 그림',
+    REF_MTW: '규격(독일 MTW)', REF_CN: '규격(중국)', DIM_B: '스텐트 몸통 길이',
+    CHINA_STD: '중국 제품표준', UKR: '우크라이나 형명', DOMESTIC: '국내 형명',
+    MDD_NOTE: 'MDD 추가문구', TERM: '기한', DEVICE: '삽입기구',
+    UPN: 'BSC UPN', CATALOG: 'BSC Catalog/Ref #', STENT_TYPE: 'BSC 스텐트구분',
+    REF_JP: '형명 (일본/말레이시아)',
     TODAY: '오늘 날짜', NOW: '현재 시각',
   };
 
@@ -201,25 +256,114 @@ LB.data = (() => {
     };
   }
 
-  /** 품목번호 → 행 인덱스 + 검색용 소문자 캐시 */
+  /**
+   * 품목번호로 쓸 수 없는 값인가.
+   * 실제 라벨DB에는 품목번호 칸이 '0' 인 채워넣기용 행이 200줄 가까이 있다.
+   * 이런 행이 색인에 들어가면 사용자가 '0' 을 입력했을 때 엉뚱한 값이 나온다.
+   */
+  function isJunkKey(k) {
+    const v = String(k || '').trim();
+    if (!v) return true;
+    if (v === '-' || v === '.' || v === '#N/A') return true;
+    if (/^0+(\.0+)?$/.test(v)) return true;      // 0, 00, 0.0 …
+    return false;
+  }
+
+  /**
+   * 품목번호 → 행 인덱스 + 검색용 소문자 캐시.
+   * @returns {{byRef:Map, search:Array, dups:Array<{key,count}>, skipped:number, total:number}}
+   */
   function buildIndex(rows, keyColName) {
     const KC = String(keyColName || KEY.col || 'H').toUpperCase();
     const byRef = new Map();
     const search = [];
+    const count = new Map();
+    let skipped = 0;
     for (const r of rows) {
       const key = String(r[KC] || '').trim();
-      if (!key) continue;
-      if (!byRef.has(key)) byRef.set(key, r);
+      if (isJunkKey(key)) { skipped++; continue; }
+      count.set(key, (count.get(key) || 0) + 1);
+      if (!byRef.has(key)) byRef.set(key, r);       // 먼저 나온 행을 쓴다
+      const ref = String(r[FIELD_COLS.REF] || r[FIELD_COLS.DOMESTIC] || r[FIELD_COLS.CATALOG] || '');
+      const name = productName(r);
       search.push({
-        key,
-        lk: key.toLowerCase(),
-        ref: String(r[FIELD_COLS.REF] || ''),
-        lref: String(r[FIELD_COLS.REF] || '').toLowerCase(),
-        name: String(r[FIELD_COLS.PRODUCT] || r[FIELD_COLS.PRODUCT_EN] || ''),
-        lname: String(r[FIELD_COLS.PRODUCT] || r[FIELD_COLS.PRODUCT_EN] || '').toLowerCase(),
+        key, lk: key.toLowerCase(),
+        ref, lref: ref.toLowerCase(),
+        name, lname: name.toLowerCase(),
       });
     }
-    return { byRef, search };
+    const dups = [];
+    for (const [k, n] of count) if (n > 1) dups.push({ key: k, count: n });
+    dups.sort((a, b) => b.count - a.count);
+    return { byRef, search, dups, skipped, total: rows.length };
+  }
+
+  /**
+   * 검색·목록에 보여 줄 제품명.
+   * BSC DB에는 제품명 텍스트 열이 아예 없고 그림 파일명만 있어서,
+   * 파일명에서 확장자와 끝의 줄 번호를 떼어 제품명으로 쓴다.
+   */
+  function productName(r) {
+    const direct = String(r[FIELD_COLS.PRODUCT] || r[FIELD_COLS.PRODUCT_EN] || '').trim();
+    if (direct) return direct;
+    const img = String(r[FIELD_COLS.IMG_NAME1] || r[FIELD_COLS.IMG_STENT] || '').trim();
+    if (!img || !looksLikeImageName(img)) return '';
+    return img.replace(/\.[A-Za-z0-9]+$/, '').replace(/[ _-]*\d+$/, '').trim();
+  }
+
+  /** 라벨DB 값이 그림 파일명처럼 보이는가 ('그림파일 없음' 같은 메모와 구분) */
+  function looksLikeImageName(v) {
+    return /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(String(v || '').trim());
+  }
+
+  /**
+   * 열 매칭 점검 — 지정한 열에 실제로 쓸 만한 값이 들어 있는지 표본으로 확인한다.
+   *
+   * 라벨DB의 머리글 줄은 예전 양식이 남아 있어 실제 값과 맞지 않는 경우가 있다.
+   * (BSC 파일이 그렇고, 일반 파일도 AL·AO 등이 어긋나 있다.)
+   * 머리글을 믿지 말고 값을 보고 판단하라는 뜻에서, 이 결과를 화면에 그대로 보여 준다.
+   *
+   * @returns Array<{key,label,col,filled,total,pct,imagePct,sample,level,note}>
+   */
+  function auditMapping(rows, sampleSize = 400) {
+    const out = [];
+    const src = [];
+    const step = Math.max(1, Math.floor((rows || []).length / sampleSize));
+    for (let i = 0; i < (rows || []).length && src.length < sampleSize; i += step) src.push(rows[i]);
+    const total = src.length;
+    if (!total) return out;
+
+    for (const g of FIELD_GROUPS) {
+      for (const key of g.keys) {
+        const col = FIELD_COLS[key];
+        const isImg = IMAGE_FIELDS.indexOf(key) >= 0;
+        if (!col) {
+          out.push({ key, label: FIELD_LABELS[key] || key, group: g.g, col: '', filled: 0, total,
+            pct: 0, imagePct: 0, sample: '', level: 'off', note: '사용 안 함' });
+          continue;
+        }
+        let filled = 0, imgLike = 0, sample = '';
+        for (const r of src) {
+          const v = String(r[col] == null ? '' : r[col]).trim();
+          if (!v) continue;
+          filled++;
+          if (!sample) sample = v;
+          if (looksLikeImageName(v)) imgLike++;
+        }
+        const pct = Math.round(filled / total * 100);
+        const imagePct = filled ? Math.round(imgLike / filled * 100) : 0;
+        let level = 'ok', note = '';
+        if (!filled) { level = 'error'; note = '이 열은 표본 전체가 비어 있습니다'; }
+        else if (pct < 20) { level = 'warn'; note = `표본의 ${pct}%에만 값이 있습니다`; }
+        if (isImg && filled && imagePct < 50) {
+          level = 'error';
+          note = `그림 항목인데 값의 ${100 - imagePct}%가 파일명이 아닙니다`;
+        }
+        out.push({ key, label: FIELD_LABELS[key] || key, group: g.g, col, filled, total,
+          pct, imagePct, sample: sample.slice(0, 40), level, note });
+      }
+    }
+    return out;
   }
 
   /**
@@ -396,9 +540,10 @@ LB.data = (() => {
   }
 
   return {
-    FIELD_COLS, DEFAULT_FIELD_COLS, FIELD_LABELS, FIELD_GROUPS, IMAGE_FIELDS,
+    FIELD_COLS, DEFAULT_FIELD_COLS, BSC_FIELD_COLS, FIELD_LABELS, FIELD_GROUPS, IMAGE_FIELDS,
+    PROFILES, profiles, profile, profileDef, setProfile, baseFieldCols,
     applyFieldMap, fieldMapDiff, resetFieldMap, colName, colIndex, setKeyCol, keyCol,
-    parseWorkbook, buildIndex, searchProducts,
+    parseWorkbook, buildIndex, searchProducts, isJunkKey, looksLikeImageName, productName, auditMapping,
     computeFields, resolveText, unresolvedPlaceholders, placeholderList,
     validateRecord, lotHint,
     edate, parseISO, fmtISO, fmt6, formatDate,

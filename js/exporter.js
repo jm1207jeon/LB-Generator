@@ -68,6 +68,10 @@ LB.exporter = (() => {
             if (rules.warnMissingImage !== false) {
               add('warn', 'IMG_NO_NAME', `"${name}" 슬롯: 이 품목의 ${o.sourceField} 파일명이 라벨DB에 없습니다.`, o.id);
             }
+          } else if (!LB.data.looksLikeImageName(fn)) {
+            // 라벨DB 그림 칸에 메모가 들어 있는 경우 ('그림파일 없음', 'Coil 주문금지' …)
+            add('warn', 'IMG_NOT_FILE',
+              `"${name}" 슬롯: 라벨DB 값이 그림 파일명이 아닙니다 — "${fn}". DB를 확인하세요.`, o.id);
           } else {
             add('warn', 'IMG_MISSING', `"${name}" 슬롯: 이미지 파일을 불러오지 못했습니다 — ${fn}`, o.id);
           }

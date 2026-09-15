@@ -18,6 +18,7 @@
   /* ================= 상태 ================= */
   const S = {
     dbMeta: null,
+    dbIssues: [],
     rows: [],
     index: null,
     inputs: { item: '', lot: '', sn: '', mfg: '', months: 36, expAuto: true, exp: '', copies: 1 },
@@ -124,6 +125,51 @@
   }
 
   /* ================= DB ================= */
+
+  /** 지금 쓰는 DB 프로필 ('general' | 'bsc') */
+  function dbProfile() { return LB.data.profile(); }
+  function profileLabel() { return LB.data.profileDef().n; }
+  const dbCacheKey = (pf) => (pf === 'bsc' ? 'db:bsc' : 'db');
+
+  /**
+   * DB 프로필을 바꾼다 — 열 매칭·조회 키·캐시가 모두 그 프로필 것으로 교체된다.
+   * 라벨 서식 자체는 건드리지 않는다.
+   */
+  async function setDbProfile(id, { silent } = {}) {
+    const pf = LB.data.setProfile(id);
+    LB.settings.put('data.profile', pf);
+    LB.data.applyFieldMap(LB.settings.value(`data.profiles.${pf}.fieldMap`, {}));
+    LB.data.setKeyCol(LB.settings.value(`data.profiles.${pf}.keyCol`, 'H'));
+    S.dbMeta = null; S.rows = []; S.index = null; S.dbIssues = [];
+    updateChips();
+    await autoLoadDb();
+    refresh();
+    revalidateQueue();
+    syncProfileUi();
+    if (!silent) {
+      U().status(S.dbMeta
+        ? `출고 구분: ${profileLabel()} — ${S.dbMeta.fileName}`
+        : `출고 구분: ${profileLabel()} — 이 구분의 라벨DB가 아직 지정되지 않았습니다.`,
+        S.dbMeta ? '' : 'warn');
+    }
+  }
+
+  function syncProfileUi() {
+    const sel = $('selProfile');
+    if (!sel) return;
+    if (!sel.dataset.filled) {
+      sel.innerHTML = '';
+      for (const p of LB.data.profiles()) {
+        const o = document.createElement('option');
+        o.value = p.v; o.textContent = p.n; o.title = p.desc;
+        sel.appendChild(o);
+      }
+      sel.dataset.filled = '1';
+    }
+    sel.value = dbProfile();
+    document.body.classList.toggle('profile-bsc', dbProfile() === 'bsc');
+  }
+
   async function loadDbFromFile(file, { silent } = {}) {
     try {
       U().status(`DB 읽는 중… ${file.name}`);
@@ -134,8 +180,8 @@
         header: parsed.header, colCount: parsed.colCount, sheets: parsed.sheets,
         loadedAt: new Date().toISOString(), lastModified: file.lastModified,
       }, parsed.rows);
-      LB.settings.markDbLoaded(file);
-      await LB.store.set('db', { meta: S.dbMeta, rows: parsed.rows }).catch(() => {});
+      LB.settings.markDbLoaded(file, dbProfile());
+      await LB.store.set(dbCacheKey(dbProfile()), { meta: S.dbMeta, rows: parsed.rows }).catch(() => {});
       if (!silent) U().toast(`라벨DB 로딩 완료 — ${parsed.rows.length.toLocaleString()}개 품목`, 'ok');
       U().status(`라벨DB 로딩 완료: ${file.name} · 시트 "${parsed.sheet}" · ${parsed.rows.length.toLocaleString()}개 품목`);
       return true;
@@ -150,6 +196,7 @@
     S.dbMeta = meta;
     S.rows = rows;
     S.index = LB.data.buildIndex(rows, LB.data.keyCol());
+    noticeDbQuality(S.index, meta);
     // 데이터 매칭 편집기가 이 DB를 그대로 펼쳐 볼 수 있게 넘겨 준다
     LB.mapper.setSource({
       rows, sheet: meta.sheet,
@@ -170,10 +217,30 @@
     }
   }
 
+  /**
+   * 라벨DB 자체의 품질 문제를 알린다.
+   * 실제 DB에는 품목번호가 '0' 인 빈 행이 수백 줄, 같은 품목번호가 여러 번
+   * 나오는 행이 섞여 있다. 조용히 넘기면 엉뚱한 제품 정보가 라벨에 찍힌다.
+   */
+  function noticeDbQuality(index, meta) {
+    if (!index) return;
+    const msgs = [];
+    if (index.skipped) msgs.push(`품목번호가 비었거나 '0' 인 행 ${index.skipped.toLocaleString()}줄을 건너뛰었습니다`);
+    if (index.dups && index.dups.length) {
+      const top = index.dups.slice(0, 3).map(d => `${d.key}(${d.count}번)`).join(', ');
+      msgs.push(`품목번호가 중복된 항목 ${index.dups.length}종 — ${top}${index.dups.length > 3 ? ' 외' : ''}. 먼저 나온 행을 씁니다`);
+    }
+    S.dbIssues = msgs;
+    if (msgs.length) {
+      U().status(`라벨DB 확인 필요 — ${msgs.join(' · ')}`, 'warn');
+      U().toast(`라벨DB에 확인할 점이 ${msgs.length}가지 있습니다. 상태줄을 보세요.`, 'warn', 6000);
+    }
+  }
+
   /** 설정된 DB 폴더에서 자동 로딩 (변경 없으면 캐시 사용) */
   async function autoLoadDb() {
     if (!LB.settings.value('paths.dbAutoLoad', true)) return;
-    const got = await LB.settings.readDbFile().catch(() => null);
+    const got = await LB.settings.readDbFile(dbProfile()).catch(() => null);
     if (got) {
       if (!got.changed && S.dbMeta) { U().status('라벨DB 변경 없음 — 캐시 사용'); return; }
       const ok = await loadDbFromFile(got.file, { silent: !got.changed });
@@ -182,7 +249,7 @@
       }
       return;
     }
-    const cached = await LB.store.get('db').catch(() => null);
+    const cached = await LB.store.get(dbCacheKey(dbProfile())).catch(() => null);
     if (cached && cached.rows) {
       applyDb(cached.meta, cached.rows);
       U().status(`라벨DB (저장된 사본): ${cached.meta.fileName} · ${cached.meta.count.toLocaleString()}개 품목`);
@@ -386,6 +453,13 @@
       o.fileName = fileName;
       o.error = '';
       if (!fileName) { o.dataUrl = ''; changed = true; continue; }
+      // 라벨DB 그림 칸에 '그림파일 없음' 같은 메모가 들어 있는 경우가 있다
+      if (!LB.data.looksLikeImageName(fileName)) {
+        o.dataUrl = '';
+        o.error = `파일명이 아닙니다: "${fileName}"`;
+        changed = true;
+        continue;
+      }
       const key = `${fileName}|${tol}|${auto}`;
       try {
         let entry = imgCache.get(key);
@@ -434,8 +508,9 @@
   async function restore() {
     await LB.settings.load();
     // 사용자가 지정한 DB 열 매칭을 먼저 적용해야 이후 계산이 맞는다
-    LB.data.applyFieldMap(LB.settings.value('data.fieldMap', {}));
-    LB.data.setKeyCol(LB.settings.value('data.keyCol', 'H'));
+    const pf0 = LB.data.setProfile(LB.settings.value('data.profile', 'general'));
+    LB.data.applyFieldMap(LB.settings.value(`data.profiles.${pf0}.fieldMap`, {}));
+    LB.data.setKeyCol(LB.settings.value(`data.profiles.${pf0}.keyCol`, 'H'));
     applyUiSettings();
 
     const tpl = await LB.store.get('template').catch(() => null);
@@ -461,6 +536,7 @@
     if (!S.inputs.mfg) S.inputs.mfg = LB.data.fmtISO(new Date());
 
     syncInputsToUi();
+    syncProfileUi();
     setLocked(S.locked, true);
     updateChips();
 
@@ -733,9 +809,14 @@
   function updateChips() {
     const db = $('chipDb'), img = $('chipImg'), out = $('chipOut');
     if (S.dbMeta) {
-      db.className = 'chip ok';
-      db.querySelector('.txt').textContent = `${S.dbMeta.fileName} · ${Number(S.dbMeta.count).toLocaleString()}`;
-      db.title = `${S.dbMeta.fileName}\n시트: ${S.dbMeta.sheet}\n${Number(S.dbMeta.count).toLocaleString()}개 품목`;
+      const issues = S.dbIssues || [];
+      const usable = S.index ? S.index.byRef.size : Number(S.dbMeta.count);
+      db.className = 'chip ' + (issues.length ? 'warn' : 'ok');
+      db.querySelector('.txt').textContent =
+        `${profileLabel()} · ${usable.toLocaleString()}` + (issues.length ? ' ⚠' : '');
+      db.title = `${S.dbMeta.fileName}\n시트: ${S.dbMeta.sheet}\n`
+        + `읽은 행 ${Number(S.dbMeta.count).toLocaleString()} · 쓸 수 있는 품목 ${usable.toLocaleString()}`
+        + (issues.length ? '\n\n확인 필요:\n· ' + issues.join('\n· ') : '');
     } else {
       db.className = 'chip bad';
       db.querySelector('.txt').textContent = 'DB 없음';
@@ -1736,12 +1817,13 @@
     note.className = 'hint';
     note.style.marginBottom = '10px';
     note.innerHTML = '라벨DB의 <b>어느 열</b>을 어느 항목으로 읽을지 정합니다. '
-      + '엑셀 서식이 바뀌어 열이 밀렸을 때 여기서 맞추면 프로그램 전체가 그 열을 씁니다.';
+      + '엑셀 서식이 바뀌어 열이 밀렸을 때 여기서 맞추면 프로그램 전체가 그 열을 씁니다. '
+      + '<b>출고 구분마다 따로</b> 저장됩니다.';
     p.appendChild(note);
 
     const g = document.createElement('section');
     g.className = 'gbox';
-    g.innerHTML = '<div class="legend">현재 매칭</div>';
+    g.innerHTML = `<div class="legend">현재 매칭 <span class="sub">${LB.data.profileDef().n}</span></div>`;
 
     const sum = document.createElement('div');
     sum.className = 'callout info';
@@ -1754,6 +1836,47 @@
     tbl.appendChild(tb);
     g.appendChild(tbl);
 
+    /* 열 매칭 점검 — 머리글이 아니라 실제 값으로 확인한다 */
+    const g2 = document.createElement('section');
+    g2.className = 'gbox';
+    g2.innerHTML = '<div class="legend">열 매칭 점검</div>';
+    const auditNote = document.createElement('div');
+    auditNote.className = 'hint';
+    auditNote.style.marginBottom = '6px';
+    auditNote.textContent = '라벨DB 머리글은 예전 양식이 남아 실제 값과 다른 경우가 있습니다. '
+      + '아래는 머리글이 아니라 실제 값을 표본으로 확인한 결과입니다.';
+    g2.appendChild(auditNote);
+    const auditBox = document.createElement('div');
+    auditBox.className = 'audit-list scroll-thin';
+    g2.appendChild(auditBox);
+
+    const paintAudit = () => {
+      LB.ui.clear(auditBox);
+      if (!S.rows || !S.rows.length) {
+        auditBox.innerHTML = '<div class="hint">라벨DB를 먼저 불러오세요.</div>';
+        return;
+      }
+      const list = LB.data.auditMapping(S.rows);
+      const bad = list.filter(a => a.level === 'error' || a.level === 'warn');
+      const head = document.createElement('div');
+      head.className = 'callout ' + (bad.length ? 'warn' : 'info');
+      head.textContent = bad.length
+        ? `확인이 필요한 항목 ${bad.length}개 (전체 ${list.filter(a => a.level !== 'off').length}개 중)`
+        : `지정한 ${list.filter(a => a.level !== 'off').length}개 항목 모두 값이 잘 들어 있습니다.`;
+      auditBox.appendChild(head);
+      for (const a of list) {
+        if (a.level === 'ok' || a.level === 'off') continue;
+        const rowEl = document.createElement('div');
+        rowEl.className = 'audit-row ' + a.level;
+        rowEl.innerHTML = `<span class="ar-name">${a.label}</span>`
+          + `<span class="ar-col">${a.col}열</span>`
+          + `<span class="ar-note">${a.note}</span>`
+          + `<span class="ar-sample">${a.sample ? '예: ' + a.sample : ''}</span>`;
+        auditBox.appendChild(rowEl);
+      }
+    };
+    paintAudit();
+
     const paint = () => {
       const diff = LB.data.fieldMapDiff();
       const n = Object.keys(diff).length;
@@ -1764,7 +1887,8 @@
       sum.className = 'callout ' + ((n || keyChanged) ? 'warn' : 'info');
       LB.ui.clear(tb);
       const rows = [['__KEY__', '품목번호 (조회 키)', LB.data.keyCol(), 'H']];
-      for (const k in diff) rows.push([k, LB.data.FIELD_LABELS[k] || k, diff[k], LB.data.DEFAULT_FIELD_COLS[k] || '—']);
+      const base = LB.data.baseFieldCols();
+      for (const k in diff) rows.push([k, LB.data.FIELD_LABELS[k] || k, diff[k], base[k] || '—']);
       if (rows.length === 1 && !keyChanged) {
         const tr = document.createElement('tr');
         const td = document.createElement('td');
@@ -1789,7 +1913,7 @@
     row.className = 'row'; row.style.marginTop = '10px';
     const open = document.createElement('button');
     open.className = 'btn primary'; open.textContent = '데이터 매칭 편집기 열기…';
-    open.onclick = async () => { await openDataMapper(); paint(); };
+    open.onclick = async () => { await openDataMapper(); paint(); paintAudit(); };
     const reset = document.createElement('button');
     reset.className = 'btn ghost sm'; reset.textContent = '기본값으로';
     reset.onclick = async () => {
@@ -1797,15 +1921,17 @@
       if (!ok) return;
       LB.data.resetFieldMap();
       LB.data.setKeyCol('H');
-      LB.settings.put('data.fieldMap', {});
-      LB.settings.put('data.keyCol', 'H');
+      const pf = dbProfile();
+      LB.settings.put(`data.profiles.${pf}.fieldMap`, {});
+      LB.settings.put(`data.profiles.${pf}.keyCol`, 'H');
       if (S.rows && S.rows.length) S.index = LB.data.buildIndex(S.rows, 'H');
-      refresh(); paint();
+      refresh(); paint(); paintAudit();
       U().toast('기본값으로 되돌렸습니다.', 'ok');
     };
     row.append(open, reset);
     g.appendChild(row);
     p.appendChild(g);
+    p.appendChild(g2);
   }
 
   /* --- 설정 › 라벨 · 용지 --- */
@@ -2034,12 +2160,29 @@
     g1.appendChild(mkPath('dbDir', '라벨DB 폴더', '지정되지 않음'));
     const fileRow = document.createElement('div');
     fileRow.className = 'row'; fileRow.style.marginTop = '8px';
-    const fl = document.createElement('span'); fl.className = 'mini'; fl.textContent = 'DB 파일';
+    const fl = document.createElement('span'); fl.className = 'mini'; fl.style.width = '86px';
+    fl.textContent = '일반 DB';
     const fsel = document.createElement('select'); fsel.id = 'setDbFile';
     const freload = document.createElement('button');
     freload.className = 'btn sm'; freload.textContent = '지금 읽기';
     fileRow.append(fl, fsel, freload);
     g1.appendChild(fileRow);
+
+    // BSC 출고(일본)는 열 구성이 다른 별도 DB를 쓴다
+    const bscRow = document.createElement('div');
+    bscRow.className = 'row'; bscRow.style.marginTop = '6px';
+    const bl = document.createElement('span'); bl.className = 'mini'; bl.style.width = '86px';
+    bl.textContent = 'BSC 일본 DB';
+    bl.title = 'BSC 출고(일본)용 라벨DB. 작업 입력의 [출고 구분] 을 BSC로 바꾸면 이 파일을 씁니다.';
+    const bsel = document.createElement('select'); bsel.id = 'setDbFileBsc';
+    const breload = document.createElement('button');
+    breload.className = 'btn sm'; breload.textContent = '지금 읽기';
+    bscRow.append(bl, bsel, breload);
+    g1.appendChild(bscRow);
+    const bhint = document.createElement('div');
+    bhint.className = 'hint'; bhint.style.margin = '4px 0 0 92px';
+    bhint.textContent = 'BSC DB는 AL열부터 열 구성이 달라 열 매칭을 따로 둡니다 (설정 › 데이터 매칭).';
+    g1.appendChild(bhint);
     const autoRow = document.createElement('label');
     autoRow.className = 'chk'; autoRow.style.marginTop = '6px';
     const autoChk = document.createElement('input');
@@ -2064,32 +2207,39 @@
 
     async function refreshDbFileSelect() {
       const files = await LB.settings.listDbFiles();
-      LB.ui.clear(fsel);
-      if (!files) {
-        const o = document.createElement('option');
-        o.value = ''; o.textContent = '(폴더를 먼저 지정하세요)';
-        fsel.appendChild(o);
-        fsel.disabled = true;
-        return;
+      for (const [sel, key] of [[fsel, 'paths.dbFileName'], [bsel, 'paths.dbFileNameBsc']]) {
+        LB.ui.clear(sel);
+        if (!files) {
+          const o = document.createElement('option');
+          o.value = ''; o.textContent = '(폴더를 먼저 지정하세요)';
+          sel.appendChild(o);
+          sel.disabled = true;
+          continue;
+        }
+        sel.disabled = false;
+        const none = document.createElement('option');
+        none.value = ''; none.textContent = '(선택 안 함)';
+        sel.appendChild(none);
+        for (const f of files) {
+          const o = document.createElement('option');
+          o.value = f; o.textContent = f;
+          sel.appendChild(o);
+        }
+        sel.value = LB.settings.value(key, '');
       }
-      fsel.disabled = false;
-      const none = document.createElement('option');
-      none.value = ''; none.textContent = '(선택 안 함)';
-      fsel.appendChild(none);
-      for (const f of files) {
-        const o = document.createElement('option');
-        o.value = f; o.textContent = f;
-        fsel.appendChild(o);
-      }
-      fsel.value = LB.settings.value('paths.dbFileName', '');
     }
     fsel.onchange = () => LB.settings.put('paths.dbFileName', fsel.value);
-    freload.onclick = async () => {
-      const got = await LB.settings.readDbFile();
+    bsel.onchange = () => LB.settings.put('paths.dbFileNameBsc', bsel.value);
+    const reloadProfile = async (pf) => {
+      const got = await LB.settings.readDbFile(pf);
       if (!got) { U().toast('DB 폴더와 파일을 먼저 지정하세요.', 'warn'); return; }
+      if (pf !== dbProfile()) await setDbProfile(pf, { silent: true });
       await loadDbFromFile(got.file);
+      syncProfileUi();
       updateChips();
     };
+    freload.onclick = () => reloadProfile('general');
+    breload.onclick = () => reloadProfile('bsc');
     refreshDbFileSelect();
 
     const g2 = document.createElement('section');
@@ -2601,6 +2751,18 @@
     });
 
     $('btnMapData').onclick = () => openDataMapper();
+    $('selProfile').onchange = async () => {
+      const v = $('selProfile').value;
+      if (v === dbProfile()) return;
+      const def = LB.data.profileDef(v);
+      if (LB.batch.count()) {
+        const ok = await U().confirm(
+          `출고 구분을 "${def.n}" 으로 바꾸면 큐에 쌓인 ${LB.batch.count()}행을 다시 검증합니다. 계속할까요?`,
+          { title: '출고 구분 변경', okLabel: '바꾸기' });
+        if (!ok) { $('selProfile').value = dbProfile(); return; }
+      }
+      await setDbProfile(v);
+    };
     $('btnClearJob').onclick = () => {
       Object.assign(S.inputs, { lot: '', sn: '', copies: 1 });
       S.activeQueueId = null;
@@ -3093,6 +3255,7 @@
     refresh, loadDbFromFile, loadSampleData, addCurrentToQueue, pasteToQueue,
     doPrintSingle, doPrintQueue, printSingle, printQueue, printZebra,
     openSettings, setLocked, normalizeAll, renderQueue, revalidateQueue,
-    loadSlotImages, loadSlotImagesInto,
+    loadSlotImages, loadSlotImagesInto, setDbProfile, dbProfile, openDataMapper,
+    openPaperDialog, openExtractDialog, applyPresetTemplate,
     get preflight() { return lastPreflight; } };
 })();
