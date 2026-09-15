@@ -42,17 +42,23 @@
   /* 이미지 폴더가 지정되지 않았을 때, 저장소에 동봉된 샘플 이미지로 대신한다.
    * (샘플 데이터 체험용. 실제 운영에서는 설정에서 이미지 폴더를 지정한다.) */
   let sampleImagesOk = null;      // null=미확인, true/false=확인됨
+
+  /**
+   * 그림 파일을 읽는다.
+   *
+   * 이미지 폴더가 지정돼 있으면 **그 폴더만** 본다. 거기 없는 파일을 동봉 샘플에서
+   * 슬쩍 가져오면, 이름이 같은 다른 제품 그림이 라벨에 찍힐 수 있다.
+   * 폴더를 아직 지정하지 않았을 때만 '지금 바로 써 보기'용 샘플 그림을 쓴다.
+   */
   async function readImageSmart(fileName) {
-    if (LB.settings.handle('imgDir')) {
-      try { return await LB.settings.readImage(fileName); }
-      catch (e) { if (sampleImagesOk === false) throw e; }
-    }
+    if (LB.settings.handle('imgDir')) return LB.settings.readImage(fileName);
+
     if (sampleImagesOk === false) throw new Error('이미지 폴더가 지정되지 않았습니다. 설정에서 지정하세요.');
     const res = await fetch('sample/images/' + encodeURIComponent(fileName)).catch(() => null);
     if (!res || !res.ok) {
+      // 첫 실패에서 샘플 폴더를 포기한다 (500행을 돌리며 매번 404를 내지 않도록)
       if (sampleImagesOk === null) sampleImagesOk = false;
-      throw new Error(LB.settings.handle('imgDir') ? `파일 없음: ${fileName}`
-                                                  : '이미지 폴더가 지정되지 않았습니다. 설정에서 지정하세요.');
+      throw new Error('이미지 폴더가 지정되지 않았습니다. 설정에서 지정하세요.');
     }
     sampleImagesOk = true;
     return await res.blob();
