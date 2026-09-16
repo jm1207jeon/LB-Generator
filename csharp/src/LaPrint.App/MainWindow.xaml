@@ -1,8 +1,764 @@
 <Window x:Class="LaPrint.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:LaPrint.App.Controls"
         Title="LaPrint" Width="1400" Height="880" MinWidth="1280" MinHeight="720"
-        WindowStartupLocation="CenterScreen"
+        WindowStartupLocation="CenterScreen" FontSize="13" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Display"
         Background="{StaticResource PaperBrush}">
-    <Grid/>
+    <Window.Resources>
+        <!-- 레일 필드 라벨 -->
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource Ink2Brush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+        <!-- 앱바·툴바 구분선 -->
+        <Style x:Key="Sep" TargetType="Rectangle">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Fill" Value="{StaticResource LineBrush}"/>
+            <Setter Property="Margin" Value="6,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <!-- 툴바 아이콘 버튼 -->
+        <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource SmallButton}">
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="4,2"/>
+        </Style>
+        <Style x:Key="IconDangerButton" TargetType="Button" BasedOn="{StaticResource SmallDangerButton}">
+            <Setter Property="MinWidth" Value="28"/>
+            <Setter Property="Padding" Value="4,2"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid x:Name="rootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="46"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="28"/>
+        </Grid.RowDefinitions>
+
+        <!-- ══════════════════ 앱바 (46) ══════════════════ -->
+        <Border Grid.Row="0" Background="{StaticResource Paper2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1">
+            <DockPanel Margin="10,0" LastChildFill="False">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Image Source="/Assets/laprint-simple-256.png" Width="26" Height="26" Margin="0,0,8,0"/>
+                    <TextBlock VerticalAlignment="Center" FontSize="15" FontWeight="Bold" Foreground="{StaticResource InkBrush}">
+                        <Run Text="LaPrint"/> <Run x:Name="brandVer" Text="v3" FontSize="11" FontWeight="Normal" Foreground="{StaticResource Ink3Brush}"/>
+                    </TextBlock>
+                    <Rectangle Style="{StaticResource Sep}"/>
+
+                    <TextBlock Text="서식" Style="{StaticResource Mini}"/>
+                    <ComboBox x:Name="selTemplate" MinWidth="168" ToolTip="라벨 서식 선택" SelectionChanged="OnTemplateSelected"/>
+                    <Button x:Name="btnTplSave" Content="저장" Style="{StaticResource SmallButton}"
+                            ToolTip="현재 레이아웃을 서식으로 저장 (Ctrl+S)" Click="OnTplSaveClick"/>
+                    <Button x:Name="btnTplManage" Content="관리…" Style="{StaticResource SmallGhostButton}"
+                            ToolTip="서식 관리" Click="OnTplManageClick"/>
+
+                    <Rectangle Style="{StaticResource Sep}"/>
+                    <ToggleButton x:Name="btnLock" Content="🔒 잠금" IsChecked="True" Style="{StaticResource ToolToggle}"
+                                  ToolTip="레이아웃 잠금 (Ctrl+L) — 켜면 캔버스 객체를 실수로 옮길 수 없습니다" Click="OnLockClick"/>
+                    <ToggleButton x:Name="btnPreview" Content="실물 보기" Style="{StaticResource ToolToggle}"
+                                  ToolTip="실물 미리보기 (F5) — 편집 보조선을 숨기고 인쇄될 모습만 봅니다" Click="OnPreviewClick"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                    <StackPanel x:Name="chips" Orientation="Horizontal">
+                        <Button x:Name="chipDb" Style="{StaticResource Chip}" Tag="paths" ToolTip="라벨DB — 클릭하면 설정이 열립니다" Click="OnChipClick">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="chipDbDot" Width="7" Height="7" Fill="{StaticResource Ink3Brush}" Margin="0,0,6,0"/>
+                                <TextBlock x:Name="chipDbText" Text="DB 없음" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="chipImg" Style="{StaticResource Chip}" Tag="paths" ToolTip="이미지 폴더 — 클릭하면 설정이 열립니다" Click="OnChipClick">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="chipImgDot" Width="7" Height="7" Fill="{StaticResource Ink3Brush}" Margin="0,0,6,0"/>
+                                <TextBlock x:Name="chipImgText" Text="이미지 폴더" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="chipOut" Style="{StaticResource Chip}" Tag="paths" ToolTip="PDF 저장 폴더 — 클릭하면 설정이 열립니다" Click="OnChipClick">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="chipOutDot" Width="7" Height="7" Fill="{StaticResource Ink3Brush}" Margin="0,0,6,0"/>
+                                <TextBlock x:Name="chipOutText" Text="저장 폴더" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <Rectangle Style="{StaticResource Sep}"/>
+                    <Button x:Name="btnSettings" Content="⚙" Style="{StaticResource SmallGhostButton}" MinWidth="28" ToolTip="설정 (Ctrl+,)" Click="OnSettingsClick"/>
+                    <Button x:Name="btnHelp" Content="?" Style="{StaticResource SmallGhostButton}" MinWidth="28" ToolTip="단축키 도움말 (F1)" Click="OnHelpClick"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ══════════════════ 본문: 레일 330 · 스테이지 · 인스펙터 308 ══════════════════ -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="308"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ──────────── 좌측 데이터 레일 ──────────── -->
+            <Border Grid.Column="0" x:Name="rail" Background="{StaticResource PaperBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="6,6,6,10">
+
+                        <!-- 1. 작업 입력 -->
+                        <HeaderedContentControl x:Name="gboxJob" Style="{StaticResource GBox}">
+                            <HeaderedContentControl.Header>
+                                <DockPanel>
+                                    <TextBlock Text="작업 입력"/>
+                                    <TextBlock x:Name="jobOrigin" Text="새 작업" Style="{StaticResource LegendSub}"/>
+                                    <Border x:Name="bscBadge" Visibility="Collapsed" Background="{StaticResource OrangeBrush}" CornerRadius="4"
+                                            Padding="5,1" Margin="8,0,0,0" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                        <TextBlock Text="BSC" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                    </Border>
+                                </DockPanel>
+                            </HeaderedContentControl.Header>
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock Text="출고 구분" Style="{StaticResource FieldLabel}" Width="56"/>
+                                    <ComboBox x:Name="selProfile" ToolTip="출고처에 따라 참조하는 라벨DB가 달라집니다" SelectionChanged="OnProfileChanged"/>
+                                </DockPanel>
+
+                                <TextBlock Text="품목번호" Style="{StaticResource FieldLabel}"/>
+                                <Grid>
+                                    <TextBox x:Name="inpItem" Style="{StaticResource Mono}" ToolTip="예: 16-0401"
+                                             TextChanged="OnItemTextChanged" GotKeyboardFocus="OnItemGotFocus" LostKeyboardFocus="OnItemLostFocus"
+                                             PreviewKeyDown="OnItemKeyDown"/>
+                                    <Popup x:Name="itemPop" PlacementTarget="{Binding ElementName=inpItem}" Placement="Bottom" StaysOpen="True"
+                                           AllowsTransparency="True" IsOpen="False" Width="{Binding ActualWidth, ElementName=inpItem}">
+                                        <Border Background="{StaticResource GroundBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1"
+                                                CornerRadius="6" MaxHeight="270" Margin="0,2,0,0">
+                                            <ListBox x:Name="itemPopList" BorderThickness="0" MouseLeftButtonUp="OnItemPopPick"/>
+                                        </Border>
+                                    </Popup>
+                                </Grid>
+
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="lbl"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                    </Grid.RowDefinitions>
+
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="LOT" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="inpLot" Style="{StaticResource Mono}" ToolTip="예: 26041086"
+                                             TextChanged="OnInputChanged" PreviewKeyDown="OnLotKeyDown"/>
+
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="SN" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="inpSn" Style="{StaticResource Mono}" ToolTip="없으면 비움"
+                                             TextChanged="OnInputChanged"/>
+
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="제조일" Style="{StaticResource FieldLabel}"/>
+                                    <DatePicker Grid.Row="2" Grid.Column="1" x:Name="inpMfg" SelectedDateChanged="OnInputChanged"/>
+
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="유효기간" Style="{StaticResource FieldLabel}"/>
+                                    <DockPanel Grid.Row="3" Grid.Column="1">
+                                        <CheckBox x:Name="chkExpAuto" Content="자동" IsChecked="True" DockPanel.Dock="Right"
+                                                  Checked="OnInputChanged" Unchecked="OnInputChanged"/>
+                                        <TextBox x:Name="inpMonths" Text="36" Width="64" TextChanged="OnInputChanged"/>
+                                        <TextBlock Text="개월" Style="{StaticResource Mini}"/>
+                                    </DockPanel>
+
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="유효일" Style="{StaticResource FieldLabel}"/>
+                                    <DatePicker Grid.Row="4" Grid.Column="1" x:Name="inpExp" IsEnabled="False" SelectedDateChanged="OnInputChanged"/>
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="매수" Style="{StaticResource FieldLabel}"/>
+                                    <TextBox Grid.Row="5" Grid.Column="1" x:Name="inpCopies" Text="1" Width="64" HorizontalAlignment="Left" TextChanged="OnInputChanged"/>
+                                </Grid>
+
+                                <DockPanel Margin="0,8,0,0">
+                                    <Button x:Name="btnClearJob" Content="지우기" Style="{StaticResource SmallGhostButton}" DockPanel.Dock="Right"
+                                            ToolTip="입력값 지우기" Click="OnClearJobClick"/>
+                                    <Button x:Name="btnQueueAdd" Content="＋ 큐에 추가" ToolTip="현재 입력을 연속 작업 큐에 추가 (Ctrl+Enter)" Click="OnQueueAddClick"/>
+                                </DockPanel>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <!-- 2. DB 참조값 -->
+                        <HeaderedContentControl x:Name="gboxRef" Style="{StaticResource GBox}">
+                            <HeaderedContentControl.Header>
+                                <DockPanel>
+                                    <Button x:Name="btnMapData" Content="열 매칭…" Style="{StaticResource SmallGhostButton}" DockPanel.Dock="Right" Padding="6,0"
+                                            ToolTip="라벨DB를 별도 창에 펼쳐 놓고, 각 항목이 읽을 열 번호를 직접 지정합니다" Click="OnMapDataClick"/>
+                                    <TextBlock Text="DB 참조값" VerticalAlignment="Center"/>
+                                </DockPanel>
+                            </HeaderedContentControl.Header>
+                            <StackPanel>
+                                <ItemsControl x:Name="tblRef">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{StaticResource Line2Brush}" BorderThickness="0,0,0,1" Padding="4,3">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="42*"/>
+                                                        <ColumnDefinition Width="58*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding Label}" FontSize="11.5" Foreground="{StaticResource Ink3Brush}" TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Grid.Column="1" x:Name="val" Text="{Binding Value}" FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                </Grid>
+                                            </Border>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding Empty}" Value="True">
+                                                    <Setter TargetName="val" Property="Foreground" Value="{StaticResource Ink3Brush}"/>
+                                                    <Setter TargetName="val" Property="FontWeight" Value="Normal"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="6" Padding="8,6" Margin="0,8,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="UDI (GS1)" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource AccentDeepBrush}"/>
+                                        <TextBlock x:Name="udiFull" Text="—" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </HeaderedContentControl>
+
+                        <!-- 3. 출력 전 점검 -->
+                        <HeaderedContentControl x:Name="gboxChecks" Style="{StaticResource GBox}">
+                            <HeaderedContentControl.Header>
+                                <DockPanel>
+                                    <TextBlock Text="출력 전 점검"/>
+                                    <TextBlock x:Name="checkSummary" Style="{StaticResource LegendSub}"/>
+                                </DockPanel>
+                            </HeaderedContentControl.Header>
+                            <ItemsControl x:Name="checks">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,2">
+                                            <TextBlock x:Name="ic" Text="{Binding Icon}" Width="14" FontWeight="Bold" TextAlignment="Center" Margin="0,0,4,0"/>
+                                            <TextBlock x:Name="msg" Text="{Binding Msg}" FontSize="12" TextWrapping="Wrap"/>
+                                        </DockPanel>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Level}" Value="error">
+                                                <Setter TargetName="ic" Property="Foreground" Value="{StaticResource FailBrush}"/>
+                                                <Setter TargetName="msg" Property="Foreground" Value="{StaticResource FailBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Level}" Value="warn">
+                                                <Setter TargetName="ic" Property="Foreground" Value="{StaticResource WarnBrush}"/>
+                                                <Setter TargetName="msg" Property="Foreground" Value="{StaticResource WarnBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Level}" Value="ok">
+                                                <Setter TargetName="ic" Property="Foreground" Value="{StaticResource PassBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Level}" Value="info">
+                                                <Setter TargetName="ic" Property="Foreground" Value="{StaticResource Ink3Brush}"/>
+                                                <Setter TargetName="msg" Property="Foreground" Value="{StaticResource Ink2Brush}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </HeaderedContentControl>
+
+                        <!-- 4. 출력 -->
+                        <StackPanel Margin="4,2,4,0">
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="출력 대상" Style="{StaticResource Mini}" Width="56"/>
+                                <Button x:Name="btnPrinterSetup" Content="🖨" Style="{StaticResource SmallGhostButton}" DockPanel.Dock="Right" MinWidth="28"
+                                        ToolTip="프린터 설정" Click="OnPrinterSetupClick"/>
+                                <ComboBox x:Name="selTarget" ToolTip="PDF 파일로 만들지, 제브라 프린터로 바로 보낼지" SelectionChanged="OnTargetChanged">
+                                    <ComboBoxItem Tag="pdf" IsSelected="True">PDF 파일</ComboBoxItem>
+                                    <ComboBoxItem Tag="zebra">ZEBRA 프린터 (ZPL)</ComboBoxItem>
+                                </ComboBox>
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="인쇄 크기" Style="{StaticResource Mini}" Width="56"/>
+                                <Button x:Name="btnPaperSetup" Content="▦" Style="{StaticResource SmallGhostButton}" DockPanel.Dock="Right" MinWidth="28"
+                                        ToolTip="용지 배치 설정" Click="OnPaperSetupClick"/>
+                                <ComboBox x:Name="selPaper" ToolTip="기본은 라벨 실물 크기입니다. A4·A3는 여러 장을 한 장에 앉혀 찍을 때만 고르세요." SelectionChanged="OnPaperChanged"/>
+                            </DockPanel>
+                            <TextBlock x:Name="printLayoutHint" Style="{StaticResource Hint}" TextAlignment="Center" Margin="0,-2,0,7"/>
+                            <Button x:Name="btnPrint" Content="이 라벨 1장 출력" Style="{StaticResource PrimaryButton}" MinHeight="40" FontSize="14"
+                                    ToolTip="지금 입력한 값으로 1장 출력 (Ctrl+P)" Click="OnPrintClick"/>
+                            <Button x:Name="btnPrintQueue" Content="큐 0장 출력" MinHeight="40" FontSize="14" FontWeight="SemiBold" Margin="2,6,2,2" Visibility="Collapsed"
+                                    ToolTip="큐에 쌓인 행을 모두 출력 (Ctrl+Shift+P)" Click="OnPrintQueueClick"/>
+                            <TextBlock x:Name="printHint" Style="{StaticResource Hint}" TextAlignment="Center" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- ──────────── 중앙 스테이지 ──────────── -->
+            <Grid Grid.Column="1" x:Name="stageArea">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" x:Name="stageBar" Background="{StaticResource Paper2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" MinHeight="38">
+                    <WrapPanel Margin="4,2" VerticalAlignment="Center">
+                        <StackPanel x:Name="tgrpInsert" Orientation="Horizontal" Margin="0,0,10,0">
+                            <Button x:Name="btnAddText" Content="＋텍스트" Style="{StaticResource SmallButton}" ToolTip="텍스트 추가" Click="OnAddTextClick"/>
+                            <Button x:Name="btnAddImgSlot" Content="＋이미지 슬롯" Style="{StaticResource SmallButton}" ToolTip="DB 이미지 슬롯 추가" Click="OnAddImgSlotClick"/>
+                            <ComboBox x:Name="selBarcodeKind" MinWidth="120" FontSize="11.5" ToolTip="추가할 바코드 종류"/>
+                            <Button x:Name="btnAddBarcode" Content="＋바코드" Style="{StaticResource SmallButton}" ToolTip="바코드 추가" Click="OnAddBarcodeClick"/>
+                            <Button x:Name="btnAddImgFile" Content="＋이미지 파일" Style="{StaticResource SmallButton}" ToolTip="이미지 파일 직접 추가" Click="OnAddImgFileClick"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="tgrpArrange" Orientation="Horizontal" Margin="0,0,10,0">
+                            <Button x:Name="btnAlignLeft" Tag="left" Content="⌐" Style="{StaticResource IconButton}" ToolTip="왼쪽 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnAlignHCenter" Tag="hcenter" Content="≡" Style="{StaticResource IconButton}" ToolTip="가로 가운데 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnAlignRight" Tag="right" Content="¬" Style="{StaticResource IconButton}" ToolTip="오른쪽 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnAlignTop" Tag="top" Content="⌶" Style="{StaticResource IconButton}" ToolTip="위 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnAlignVCenter" Tag="vcenter" Content="≣" Style="{StaticResource IconButton}" ToolTip="세로 가운데 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnAlignBottom" Tag="bottom" Content="⌷" Style="{StaticResource IconButton}" ToolTip="아래 맞춤" Click="OnAlignClick"/>
+                            <Button x:Name="btnDistH" Tag="h" Content="↔" Style="{StaticResource IconButton}" ToolTip="가로 균등 분배" Click="OnDistributeClick"/>
+                            <Button x:Name="btnDistV" Tag="v" Content="↕" Style="{StaticResource IconButton}" ToolTip="세로 균등 분배" Click="OnDistributeClick"/>
+                            <Button x:Name="btnFront" Content="⬆" Style="{StaticResource IconButton}" ToolTip="맨 앞으로" Click="OnFrontClick"/>
+                            <Button x:Name="btnBack" Content="⬇" Style="{StaticResource IconButton}" ToolTip="맨 뒤로" Click="OnBackClick"/>
+                            <Button x:Name="btnDup" Content="⧉" Style="{StaticResource IconButton}" ToolTip="복제 (Ctrl+D)" Click="OnDupClick"/>
+                            <Button x:Name="btnDelete" Content="🗑" Style="{StaticResource IconDangerButton}" ToolTip="삭제 (Delete)" Click="OnDeleteClick"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="tgrpView" Orientation="Horizontal" Margin="0,0,10,0">
+                            <Button x:Name="btnUndo" Content="↶" Style="{StaticResource IconButton}" ToolTip="실행 취소 (Ctrl+Z)" Click="OnUndoClick"/>
+                            <Button x:Name="btnRedo" Content="↷" Style="{StaticResource IconButton}" ToolTip="다시 실행 (Ctrl+Shift+Z)" Click="OnRedoClick"/>
+                            <ToggleButton x:Name="btnSnap" Content="스냅" IsChecked="True" Style="{StaticResource ToolToggle}" ToolTip="맞춤 안내선 (스냅)" Click="OnSnapClick"/>
+                            <ToggleButton x:Name="btnGrid" Content="격자" Style="{StaticResource ToolToggle}" ToolTip="격자 표시" Click="OnGridClick"/>
+                            <ToggleButton x:Name="btnRuler" Content="눈금" IsChecked="True" Style="{StaticResource ToolToggle}" ToolTip="눈금자" Click="OnRulerClick"/>
+                            <ToggleButton x:Name="btnLink" Content="링크 보기" Style="{StaticResource ToolToggle}"
+                                          ToolTip="켜 두고 객체를 하나 고르면, 같은 값을 쓰는 다른 자리들이 함께 표시됩니다" Click="OnLinkClick"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="tgrpZoom" Orientation="Horizontal" Margin="0,0,10,0">
+                            <Button x:Name="btnZoomOut" Content="−" Style="{StaticResource IconButton}" ToolTip="축소" Click="OnZoomOutClick"/>
+                            <ComboBox x:Name="selZoom" MinWidth="78" FontSize="11.5" ToolTip="배율" SelectionChanged="OnZoomSelected">
+                                <ComboBoxItem Tag="25">25%</ComboBoxItem>
+                                <ComboBoxItem Tag="50">50%</ComboBoxItem>
+                                <ComboBoxItem Tag="75">75%</ComboBoxItem>
+                                <ComboBoxItem Tag="100">100%</ComboBoxItem>
+                                <ComboBoxItem Tag="150">150%</ComboBoxItem>
+                                <ComboBoxItem Tag="200">200%</ComboBoxItem>
+                                <ComboBoxItem Tag="300">300%</ComboBoxItem>
+                                <ComboBoxItem Tag="400">400%</ComboBoxItem>
+                                <ComboBoxItem Tag="600">600%</ComboBoxItem>
+                            </ComboBox>
+                            <Button x:Name="btnZoomIn" Content="＋" Style="{StaticResource IconButton}" ToolTip="확대" Click="OnZoomInClick"/>
+                            <Button x:Name="btnZoomFit" Content="맞춤" Style="{StaticResource SmallButton}" ToolTip="화면 맞춤 (Ctrl+0)" Click="OnZoomFitClick"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="tgrpSize" Orientation="Horizontal">
+                            <TextBlock Text="라벨" Style="{StaticResource Mini}"/>
+                            <ComboBox x:Name="selLabelPreset" MinWidth="150" FontSize="11.5" ToolTip="라벨 규격을 고르면 크기가 자동으로 맞춰집니다" SelectionChanged="OnLabelPresetChanged"/>
+                            <TextBox x:Name="inpLabelW" Text="173.8" Width="60" FontFamily="Consolas" ToolTip="가로(mm)" LostFocus="OnLabelSizeChanged" PreviewKeyDown="OnLabelSizeKeyDown"/>
+                            <TextBlock Text="×" Style="{StaticResource Mini}"/>
+                            <TextBox x:Name="inpLabelH" Text="26.3" Width="60" FontFamily="Consolas" ToolTip="세로(mm)" LostFocus="OnLabelSizeChanged" PreviewKeyDown="OnLabelSizeKeyDown"/>
+                            <TextBlock Text="mm" Style="{StaticResource Mini}"/>
+                            <Button x:Name="btnExtract" Content="원판에서 떼기…" Style="{StaticResource SmallButton}"
+                                    ToolTip="A3 원판 서식에서 라벨 한 장만 떼어내 독립 서식으로 만듭니다" Click="OnExtractClick"/>
+                        </StackPanel>
+                    </WrapPanel>
+                </Border>
+
+                <Grid Grid.Row="1" x:Name="stageWrap" Background="{StaticResource CanvasBgBrush}" ClipToBounds="True">
+                    <controls:EditorCanvas x:Name="stage"/>
+                    <StackPanel x:Name="stageOverlay" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8" IsHitTestVisible="False">
+                        <TextBlock x:Name="ovlPos" Text="—" Style="{StaticResource Ovl}"/>
+                        <TextBlock x:Name="ovlSel" Style="{StaticResource Ovl}" Visibility="Collapsed"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- ──────────── 우측 인스펙터 ──────────── -->
+            <Border Grid.Column="2" x:Name="inspector" Background="{StaticResource GroundBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1,0,0,0">
+                <TabControl x:Name="inspTabs" Style="{StaticResource InspTabs}" SelectionChanged="OnInspectorTabChanged">
+                    <TabItem x:Name="tabProps" Header="속성">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <Grid>
+                                <StackPanel x:Name="propsEmpty" Margin="12,26" HorizontalAlignment="Center">
+                                    <TextBlock Text="캔버스에서 객체를 선택하면&#10;여기에 속성이 나타납니다." TextAlignment="Center" FontSize="12" Foreground="{StaticResource Ink3Brush}" LineHeight="19"/>
+                                    <TextBlock Text="잠금이 켜져 있으면 선택할 수 없습니다.&#10;편집하려면 상단 🔒 잠금을 끄세요." TextAlignment="Center" Style="{StaticResource Hint}" Margin="0,12,0,0"/>
+                                </StackPanel>
+
+                                <StackPanel x:Name="propsBody" Visibility="Collapsed" Margin="2,4">
+                                    <DockPanel Margin="6,2,6,6">
+                                        <TextBlock x:Name="propIcon" Text="T" Width="18" FontWeight="Bold" Foreground="{StaticResource Ink3Brush}" VerticalAlignment="Center"/>
+                                        <Border x:Name="propBadge" Visibility="Collapsed" DockPanel.Dock="Right" Background="{StaticResource Paper2Brush}" CornerRadius="4" Padding="5,1" VerticalAlignment="Center">
+                                            <TextBlock x:Name="propBadgeText" FontSize="11" Foreground="{StaticResource Ink2Brush}"/>
+                                        </Border>
+                                        <TextBlock x:Name="propTitle" Text="객체" FontSize="13.5" FontWeight="Bold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    </DockPanel>
+
+                                    <!-- 공통: 이름 · 위치 · 크기 -->
+                                    <HeaderedContentControl Style="{StaticResource GBox}">
+                                        <HeaderedContentControl.Header>
+                                            <DockPanel><TextBlock Text="위치와 크기"/><TextBlock Text="mm" Style="{StaticResource LegendSub}"/></DockPanel>
+                                        </HeaderedContentControl.Header>
+                                        <StackPanel>
+                                            <DockPanel Margin="0,0,0,6">
+                                                <TextBlock Text="이름" Style="{StaticResource FieldLabel}" Width="30"/>
+                                                <TextBox x:Name="propName" ToolTip="(자동)" LostFocus="OnPropNameChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                            </DockPanel>
+                                            <UniformGrid Columns="4">
+                                                <DockPanel><TextBlock Text="X" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/><TextBox x:Name="propX" FontFamily="Consolas" LostFocus="OnPropGeomChanged" PreviewKeyDown="OnPropEnterKey"/></DockPanel>
+                                                <DockPanel><TextBlock Text="Y" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/><TextBox x:Name="propY" FontFamily="Consolas" LostFocus="OnPropGeomChanged" PreviewKeyDown="OnPropEnterKey"/></DockPanel>
+                                                <DockPanel><TextBlock Text="W" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/><TextBox x:Name="propW" FontFamily="Consolas" LostFocus="OnPropGeomChanged" PreviewKeyDown="OnPropEnterKey"/></DockPanel>
+                                                <DockPanel><TextBlock Text="H" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/><TextBox x:Name="propH" FontFamily="Consolas" LostFocus="OnPropGeomChanged" PreviewKeyDown="OnPropEnterKey"/></DockPanel>
+                                            </UniformGrid>
+                                            <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
+                                                <CheckBox x:Name="chkLocked" Content="잠금" Checked="OnPropLockedChanged" Unchecked="OnPropLockedChanged"/>
+                                                <CheckBox x:Name="chkVisible" Content="표시" IsChecked="True" Checked="OnPropVisibleChanged" Unchecked="OnPropVisibleChanged"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </HeaderedContentControl>
+
+                                    <!-- 텍스트 -->
+                                    <StackPanel x:Name="propTextWrap" Visibility="Collapsed">
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="내용">
+                                            <StackPanel>
+                                                <TextBox x:Name="propText" AcceptsReturn="True" MinLines="3" TextWrapping="Wrap" FontFamily="Consolas" FontSize="13"
+                                                         VerticalScrollBarVisibility="Auto" ToolTip="{}{PRODUCT}" TextChanged="OnPropTextChanged"/>
+                                                <DockPanel Margin="0,5,0,0">
+                                                    <Button x:Name="btnInsertPh" Content="삽입" Style="{StaticResource SmallButton}" DockPanel.Dock="Right" Click="OnInsertPhClick"/>
+                                                    <ComboBox x:Name="selPlaceholder" ToolTip="플레이스홀더 삽입"/>
+                                                </DockPanel>
+                                                <Button x:Name="btnPickColText" Content="DB 열 직접 고르기…" Style="{StaticResource SmallGhostButton}" HorizontalAlignment="Stretch" Margin="2,4,2,2"
+                                                        ToolTip="라벨DB를 별도 창에서 펼쳐 보고, 넣을 열을 직접 고릅니다" Click="OnPickColTextClick"/>
+                                                <TextBlock x:Name="propTextPreview" Style="{StaticResource Hint}" Margin="0,5,0,0"/>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="글꼴">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock Text="pt" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                                                    <TextBox x:Name="inpFontSize" Width="62" DockPanel.Dock="Right" ToolTip="크기(pt)" LostFocus="OnFontSizeChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                                    <ComboBox x:Name="selFont" SelectionChanged="OnFontChanged"/>
+                                                </DockPanel>
+                                                <DockPanel Margin="0,4,0,0">
+                                                    <CheckBox x:Name="chkAutoShrink" Content="자동 축소" DockPanel.Dock="Right" ToolTip="영역을 넘치면 자동으로 글자를 줄입니다"
+                                                              Checked="OnAutoShrinkChanged" Unchecked="OnAutoShrinkChanged"/>
+                                                    <ToggleButton x:Name="chkBold" Style="{StaticResource ToolToggle}" MinWidth="28" ToolTip="굵게 (Ctrl+B)" Click="OnBoldClick">
+                                                        <TextBlock Text="B" FontWeight="Bold"/>
+                                                    </ToggleButton>
+                                                    <ToggleButton x:Name="chkItalic" Style="{StaticResource ToolToggle}" MinWidth="28" ToolTip="기울임 (Ctrl+I)" Click="OnItalicClick">
+                                                        <TextBlock Text="I" FontStyle="Italic"/>
+                                                    </ToggleButton>
+                                                    <TextBlock Text="색" Style="{StaticResource Mini}" Margin="6,0,2,0"/>
+                                                    <Border x:Name="propColorSwatch" Width="18" Height="18" Background="Black" BorderBrush="{StaticResource LineBrush}" BorderThickness="1" CornerRadius="3" VerticalAlignment="Center"/>
+                                                    <TextBox x:Name="propColor" Width="72" FontFamily="Consolas" Text="#000000" HorizontalAlignment="Left" TextChanged="OnColorChanged"/>
+                                                </DockPanel>
+
+                                                <Grid Margin="0,7,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
+                                                    </Grid.RowDefinitions>
+
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="자간" Style="{StaticResource FieldLabel}" ToolTip="글자와 글자 사이 간격"/>
+                                                    <DockPanel Grid.Row="0" Grid.Column="1">
+                                                        <TextBlock Text="pt" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                                                        <TextBox x:Name="inpLetterSpacing" Tag="letterSpacing" Width="62" DockPanel.Dock="Right" LostFocus="OnSpacingChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                                        <Slider x:Name="rngLetterSpacing" Tag="letterSpacing" Minimum="-2" Maximum="10" SmallChange="0.1" LargeChange="1" VerticalAlignment="Center" ValueChanged="OnSpacingSliderChanged"/>
+                                                    </DockPanel>
+
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="어간" Style="{StaticResource FieldLabel}" ToolTip="낱말과 낱말 사이 간격"/>
+                                                    <DockPanel Grid.Row="1" Grid.Column="1">
+                                                        <TextBlock Text="pt" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                                                        <TextBox x:Name="inpWordSpacing" Tag="wordSpacing" Width="62" DockPanel.Dock="Right" LostFocus="OnSpacingChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                                        <Slider x:Name="rngWordSpacing" Tag="wordSpacing" Minimum="-2" Maximum="20" SmallChange="0.1" LargeChange="1" VerticalAlignment="Center" ValueChanged="OnSpacingSliderChanged"/>
+                                                    </DockPanel>
+
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="행간" Style="{StaticResource FieldLabel}" ToolTip="줄과 줄 사이 간격 (글자 크기 배수)"/>
+                                                    <DockPanel Grid.Row="2" Grid.Column="1">
+                                                        <TextBlock Text="배" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                                                        <TextBox x:Name="inpLineHeight" Tag="lineHeight" Width="62" DockPanel.Dock="Right" LostFocus="OnSpacingChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                                        <Slider x:Name="rngLineHeight" Tag="lineHeight" Minimum="0.7" Maximum="3" SmallChange="0.05" LargeChange="0.5" VerticalAlignment="Center" ValueChanged="OnSpacingSliderChanged"/>
+                                                    </DockPanel>
+
+                                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="장평" Style="{StaticResource FieldLabel}" ToolTip="글자의 가로 비율. 100%가 원본, 낮추면 홀쭉해집니다"/>
+                                                    <DockPanel Grid.Row="3" Grid.Column="1">
+                                                        <TextBlock Text="%" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                                                        <TextBox x:Name="inpHScale" Tag="hScale" Width="62" DockPanel.Dock="Right" LostFocus="OnSpacingChanged" PreviewKeyDown="OnPropEnterKey"/>
+                                                        <Slider x:Name="rngHScale" Tag="hScale" Minimum="40" Maximum="200" SmallChange="1" LargeChange="10" VerticalAlignment="Center" ValueChanged="OnSpacingSliderChanged"/>
+                                                    </DockPanel>
+                                                </Grid>
+
+                                                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                                    <CheckBox x:Name="chkKerning" Content="커닝" IsChecked="True" ToolTip="글자 쌍에 따라 간격을 자동으로 다듬습니다 (예: AV, To)"
+                                                              Checked="OnKerningChanged" Unchecked="OnKerningChanged"/>
+                                                    <TextBlock x:Name="kerningHint" Style="{StaticResource Mini}"/>
+                                                </StackPanel>
+
+                                                <DockPanel Margin="0,7,0,0">
+                                                    <CheckBox x:Name="chkWrap" Content="줄바꿈" IsChecked="True" DockPanel.Dock="Right" Checked="OnWrapChanged" Unchecked="OnWrapChanged"/>
+                                                    <TextBlock Text="정렬" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selAlign" SelectionChanged="OnAlignChanged">
+                                                        <ComboBoxItem Tag="left" IsSelected="True">왼쪽</ComboBoxItem>
+                                                        <ComboBoxItem Tag="center">가운데</ComboBoxItem>
+                                                        <ComboBoxItem Tag="right">오른쪽</ComboBoxItem>
+                                                        <ComboBoxItem Tag="justify">양쪽</ComboBoxItem>
+                                                    </ComboBox>
+                                                    <ComboBox x:Name="selVAlign" HorizontalAlignment="Left" SelectionChanged="OnVAlignChanged">
+                                                        <ComboBoxItem Tag="top" IsSelected="True">위</ComboBoxItem>
+                                                        <ComboBoxItem Tag="middle">중간</ComboBoxItem>
+                                                        <ComboBoxItem Tag="bottom">아래</ComboBoxItem>
+                                                    </ComboBox>
+                                                </DockPanel>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+                                    </StackPanel>
+
+                                    <!-- 데이터 링크 -->
+                                    <HeaderedContentControl x:Name="propLinkWrap" Style="{StaticResource GBox}" Visibility="Collapsed">
+                                        <HeaderedContentControl.Header>
+                                            <DockPanel><TextBlock Text="데이터 링크"/><TextBlock x:Name="linkSummary" Style="{StaticResource LegendSub}"/></DockPanel>
+                                        </HeaderedContentControl.Header>
+                                        <StackPanel>
+                                            <ItemsControl x:Name="linkList"/>
+                                            <TextBlock Style="{StaticResource Hint}" Margin="0,5,0,0"
+                                                       Text="[링크 보기] 를 켜고 객체를 하나 고르면, 같은 값을 쓰는 자리가 캔버스에 함께 표시됩니다."/>
+                                            <Button x:Name="btnLinkMap" Content="데이터 매칭 편집…" Style="{StaticResource SmallGhostButton}" HorizontalAlignment="Stretch" Margin="2,6,2,2"
+                                                    ToolTip="라벨DB를 별도 창에 펼쳐 놓고 각 항목이 읽을 열을 지정합니다" Click="OnLinkMapClick"/>
+                                        </StackPanel>
+                                    </HeaderedContentControl>
+
+                                    <!-- 이미지 -->
+                                    <StackPanel x:Name="propImgWrap" Visibility="Collapsed">
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="이미지 소스">
+                                            <StackPanel>
+                                                <ComboBox x:Name="propSource" SelectionChanged="OnImgSourceChanged"/>
+                                                <TextBlock x:Name="propFileName" Style="{StaticResource Hint}" Margin="0,5,0,0"/>
+                                                <Button x:Name="btnPickColImg" Content="DB 열 직접 고르기…" Style="{StaticResource SmallGhostButton}" HorizontalAlignment="Stretch" Margin="2,6,2,2"
+                                                        ToolTip="파일명이 들어 있는 DB 열을 별도 창에서 직접 고릅니다" Click="OnPickColImgClick"/>
+                                                <Button x:Name="btnPickImgFile" Content="파일 직접 지정…" Style="{StaticResource SmallButton}" HorizontalAlignment="Stretch" Margin="2,4,2,2" Click="OnPickImgFileClick"/>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="맞춤">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock Text="방식" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selImgFitMode" HorizontalAlignment="Left" SelectionChanged="OnImgFitChanged">
+                                                        <ComboBoxItem Tag="contain" IsSelected="True">영역 안에 (종횡비 유지)</ComboBoxItem>
+                                                        <ComboBoxItem Tag="cover">영역 채움 (잘림)</ComboBoxItem>
+                                                        <ComboBoxItem Tag="stretch">늘이기 (종횡비 무시)</ComboBoxItem>
+                                                    </ComboBox>
+                                                </DockPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                    <TextBlock Text="가로" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selImgFit" SelectionChanged="OnImgFitChanged">
+                                                        <ComboBoxItem Tag="left">왼쪽</ComboBoxItem>
+                                                        <ComboBoxItem Tag="center" IsSelected="True">가운데</ComboBoxItem>
+                                                        <ComboBoxItem Tag="right">오른쪽</ComboBoxItem>
+                                                    </ComboBox>
+                                                    <TextBlock Text="세로" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selImgVFit" SelectionChanged="OnImgFitChanged">
+                                                        <ComboBoxItem Tag="top">위</ComboBoxItem>
+                                                        <ComboBoxItem Tag="middle" IsSelected="True">중간</ComboBoxItem>
+                                                        <ComboBoxItem Tag="bottom">아래</ComboBoxItem>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+                                    </StackPanel>
+
+                                    <!-- 바코드 -->
+                                    <StackPanel x:Name="propBcWrap" Visibility="Collapsed">
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="바코드">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock Text="종류" Style="{StaticResource Mini}" Width="44"/>
+                                                    <ComboBox x:Name="selSymbology" SelectionChanged="OnSymbologyChanged"/>
+                                                </DockPanel>
+                                                <DockPanel Margin="0,4,0,0">
+                                                    <TextBlock Text="데이터" Style="{StaticResource Mini}" Width="44"/>
+                                                    <ComboBox x:Name="selBcSource" SelectionChanged="OnBcSourceChanged">
+                                                        <ComboBoxItem Tag="field" IsSelected="True">DB/계산 필드</ComboBoxItem>
+                                                        <ComboBoxItem Tag="expression">직접 입력 (플레이스홀더)</ComboBoxItem>
+                                                        <ComboBoxItem Tag="object">다른 객체의 텍스트 링크</ComboBoxItem>
+                                                    </ComboBox>
+                                                </DockPanel>
+                                                <StackPanel x:Name="bcFieldWrap" Margin="0,4,0,0">
+                                                    <ComboBox x:Name="selBcBinding" SelectionChanged="OnBcBindingChanged"/>
+                                                </StackPanel>
+                                                <StackPanel x:Name="bcExprWrap" Visibility="Collapsed" Margin="0,4,0,0">
+                                                    <TextBox x:Name="inpBcExpr" AcceptsReturn="True" MinLines="2" TextWrapping="Wrap" FontFamily="Consolas" FontSize="13"
+                                                             ToolTip="(01){GTIN}(10){LOT}" TextChanged="OnBcExprChanged"/>
+                                                    <Button x:Name="btnPickColBc" Content="DB 열 직접 고르기…" Style="{StaticResource SmallGhostButton}" HorizontalAlignment="Stretch" Margin="2,4,2,2"
+                                                            ToolTip="라벨DB를 별도 창에서 펼쳐 보고, 넣을 열을 직접 고릅니다" Click="OnPickColBcClick"/>
+                                                </StackPanel>
+                                                <StackPanel x:Name="bcObjWrap" Visibility="Collapsed" Margin="0,4,0,0">
+                                                    <ComboBox x:Name="selBcLink" SelectionChanged="OnBcLinkChanged"/>
+                                                </StackPanel>
+                                                <TextBlock x:Name="bcPreview" Style="{StaticResource Hint}" FontFamily="Consolas" Margin="0,6,0,0"/>
+                                                <TextBlock x:Name="bcIssues" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+                                        <HeaderedContentControl Style="{StaticResource GBox}" Header="모양">
+                                            <StackPanel>
+                                                <CheckBox x:Name="chkHri" Content="사람이 읽는 문자(HRI)" Checked="OnHriChanged" Unchecked="OnHriChanged"/>
+                                                <DockPanel Margin="0,4,0,0">
+                                                    <TextBlock Text="크기" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selBcFitMode" HorizontalAlignment="Left" SelectionChanged="OnBcFitChanged">
+                                                        <ComboBoxItem Tag="module" IsSelected="True">모듈 정수 배율 (선명·권장)</ComboBoxItem>
+                                                        <ComboBoxItem Tag="stretch">영역 꽉 채움</ComboBoxItem>
+                                                    </ComboBox>
+                                                </DockPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                                    <TextBlock Text="정렬" Style="{StaticResource Mini}"/>
+                                                    <ComboBox x:Name="selBcFit" SelectionChanged="OnBcFitChanged">
+                                                        <ComboBoxItem Tag="left">왼쪽</ComboBoxItem>
+                                                        <ComboBoxItem Tag="center" IsSelected="True">가운데</ComboBoxItem>
+                                                        <ComboBoxItem Tag="right">오른쪽</ComboBoxItem>
+                                                    </ComboBox>
+                                                    <ComboBox x:Name="selBcVFit" SelectionChanged="OnBcFitChanged">
+                                                        <ComboBoxItem Tag="top">위</ComboBoxItem>
+                                                        <ComboBoxItem Tag="middle" IsSelected="True">중간</ComboBoxItem>
+                                                        <ComboBoxItem Tag="bottom">아래</ComboBoxItem>
+                                                    </ComboBox>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </HeaderedContentControl>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                    </TabItem>
+
+                    <TabItem x:Name="tabTree">
+                        <TabItem.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="객체 "/>
+                                <TextBlock x:Name="treeCount" Style="{StaticResource Mini}" Margin="0"/>
+                            </StackPanel>
+                        </TabItem.Header>
+                        <DockPanel Margin="6">
+                            <TextBox x:Name="treeSearch" DockPanel.Dock="Top" ToolTip="객체 검색" Margin="0,0,0,7" TextChanged="OnTreeSearchChanged"/>
+                            <ListBox x:Name="objectTree" SelectionMode="Extended" BorderThickness="0" SelectionChanged="OnTreeSelectionChanged"/>
+                        </DockPanel>
+                    </TabItem>
+                </TabControl>
+            </Border>
+        </Grid>
+
+        <!-- ══════════════════ 연속 작업 큐 (Drawer) ══════════════════ -->
+        <Border Grid.Row="2" x:Name="drawer" Background="{StaticResource GroundBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="38"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" x:Name="drawerHead" Margin="10,0" LastChildFill="False">
+                    <ToggleButton x:Name="drawerToggle" Style="{StaticResource ToolToggle}" Background="Transparent" BorderBrush="Transparent" MinWidth="24" Padding="2"
+                                  ToolTip="연속 작업 큐 펼치기/접기 (Ctrl+↓ / Ctrl+↑)" Click="OnDrawerToggleClick">
+                        <TextBlock x:Name="drawerCaret" Text="▶" FontSize="11" Foreground="{StaticResource Ink3Brush}"/>
+                    </ToggleButton>
+                    <TextBlock Text="연속 작업 큐" FontWeight="Bold" FontSize="12.5" VerticalAlignment="Center" Margin="4,0,8,0"/>
+                    <TextBlock x:Name="queueCount" Text="0건" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="cntDone" Text="0완료" FontSize="12" Foreground="{StaticResource PassBrush}" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="cntErr" Text="0오류" FontSize="12" Foreground="{StaticResource DangerBrush}" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="Collapsed"/>
+                    <ProgressBar x:Name="queueProgress" Width="150" Height="7" Minimum="0" Maximum="100" Foreground="{StaticResource AccentBrush}"
+                                 Background="{StaticResource GroundBrush}" BorderBrush="{StaticResource LineBrush}" VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="queueStatus" Style="{StaticResource Mini}"/>
+
+                    <TextBlock x:Name="drawerHint" Text="여러 장을 연속 출력하려면 펼치세요" Style="{StaticResource Mini}" DockPanel.Dock="Right"/>
+                    <Button x:Name="btnQueueCancel" Content="중지" Style="{StaticResource SmallDangerButton}" DockPanel.Dock="Right" Visibility="Collapsed" Click="OnQueueCancelClick"/>
+                    <Button x:Name="btnQueuePause" Content="일시정지" Style="{StaticResource SmallButton}" DockPanel.Dock="Right" Visibility="Collapsed" Click="OnQueuePauseClick"/>
+                </DockPanel>
+
+                <Grid Grid.Row="1" x:Name="drawerBody" Height="260" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0" x:Name="queueTools" Margin="8,2" >
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <TextBlock Text="출력 방식" Style="{StaticResource Mini}"/>
+                            <ComboBox x:Name="selQueueMode" FontSize="11.5" SelectionChanged="OnQueueModeChanged">
+                                <ComboBoxItem Tag="separate" IsSelected="True">라벨마다 개별 PDF</ComboBoxItem>
+                                <ComboBoxItem Tag="merged">한 PDF에 여러 쪽</ComboBoxItem>
+                            </ComboBox>
+                            <Button x:Name="btnQExport" Content="CSV 저장" Style="{StaticResource SmallGhostButton}" ToolTip="큐를 CSV로 저장" Click="OnQueueExportClick"/>
+                            <Button x:Name="btnQueueRun" Content="큐 출력" Style="{StaticResource SmallButton}" ToolTip="큐에 쌓인 행을 모두 출력 (Ctrl+Shift+P)" Click="OnQueueRunClick"/>
+                        </StackPanel>
+                        <WrapPanel VerticalAlignment="Center">
+                            <Button x:Name="btnQueuePaste" Content="엑셀 붙여넣기" Style="{StaticResource SmallButton}" ToolTip="엑셀에서 복사한 표를 붙여넣기 (Ctrl+V)" Click="OnQueuePasteClick"/>
+                            <Button x:Name="btnQueueFile" Content="파일 불러오기" Style="{StaticResource SmallButton}" ToolTip="CSV/XLSX 파일 불러오기" Click="OnQueueFileClick"/>
+                            <Button x:Name="btnQAddRow" Content="＋ 빈 행" Style="{StaticResource SmallButton}" Click="OnQueueAddRowClick"/>
+                            <Button x:Name="btnQueueSerial" Content="SN 연번…" Style="{StaticResource SmallButton}" ToolTip="선택 행을 SN 연번으로 펼치기" Click="OnQueueSerialClick"/>
+                            <Rectangle Style="{StaticResource Sep}"/>
+                            <Button x:Name="btnQDup" Content="복제" Style="{StaticResource SmallButton}" Click="OnQueueDupClick"/>
+                            <Button x:Name="btnQDel" Content="행 삭제" Style="{StaticResource SmallDangerButton}" Click="OnQueueDelClick"/>
+                            <Button x:Name="btnQClearDone" Content="완료 행 비우기" Style="{StaticResource SmallGhostButton}" Click="OnQueueClearDoneClick"/>
+                            <Button x:Name="btnQueueClear" Content="전체 비우기" Style="{StaticResource SmallDangerButton}" Margin="24,2,2,2" Click="OnQueueClearClick"/>
+                        </WrapPanel>
+                    </DockPanel>
+
+                    <Grid Grid.Row="1" x:Name="queueScroll">
+                        <TextBlock x:Name="queueEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" FontSize="12.5" LineHeight="24"
+                                   Foreground="{StaticResource Ink3Brush}" Margin="16,22">
+                            <Run Text="큐가 비어 있습니다 — 지금은 "/><Run Text="라벨 1장" FontWeight="Bold"/><Run Text=" 작업 모드입니다."/><LineBreak/>
+                            <Run Text="왼쪽에서 입력하고 Ctrl+Enter 로 행을 쌓거나,"/><LineBreak/>
+                            <Run Text="엑셀에서 복사한 표를 Ctrl+V 로 붙여넣으세요."/>
+                        </TextBlock>
+                        <DataGrid x:Name="queueGrid" Visibility="Collapsed" IsReadOnly="True" SelectionMode="Extended" Margin="8,0,8,8"
+                                  MouseDoubleClick="OnQueueRowDoubleClick" SelectionChanged="OnQueueSelectionChanged">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Level}" Value="error">
+                                            <Setter Property="Background" Value="{StaticResource FailFillBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level}" Value="warn">
+                                            <Setter Property="Background" Value="{StaticResource WarnFillBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level}" Value="done">
+                                            <Setter Property="Background" Value="{StaticResource PassFillBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level}" Value="running">
+                                            <Setter Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </DataGrid.RowStyle>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="#" Binding="{Binding No}" Width="34"/>
+                                <DataGridTextColumn Header="품목번호" Binding="{Binding Item}" Width="110" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="LOT" Binding="{Binding Lot}" Width="120" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="SN" Binding="{Binding Sn}" Width="80" FontFamily="Consolas"/>
+                                <DataGridTextColumn Header="제조일" Binding="{Binding Mfg}" Width="128"/>
+                                <DataGridTextColumn Header="개월" Binding="{Binding Months}" Width="64"/>
+                                <DataGridTextColumn Header="유효일" Binding="{Binding Exp}" Width="112"/>
+                                <DataGridTextColumn Header="매수" Binding="{Binding Copies}" Width="56"/>
+                                <DataGridTextColumn Header="상태" Binding="{Binding StatusText}" Width="72"/>
+                                <DataGridTextColumn Header="메시지 / 파일명" Binding="{Binding Message}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- ══════════════════ 상태바 (28) ══════════════════ -->
+        <Border Grid.Row="3" x:Name="statusbar" Background="{StaticResource Paper2Brush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0">
+            <DockPanel Margin="10,0">
+                <TextBlock x:Name="statusLock" Text="🔒 잠금" FontSize="12" VerticalAlignment="Center"/>
+                <Rectangle Style="{StaticResource Sep}" Height="14"/>
+                <TextBlock x:Name="statusSaved" Text="저장됨" FontSize="12" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                <Rectangle Style="{StaticResource Sep}" Height="14" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="statusZoom" Text="—" FontSize="12" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                <Rectangle Style="{StaticResource Sep}" Height="14" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="statusSize" Text="—" FontSize="12" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                <Rectangle Style="{StaticResource Sep}" Height="14" DockPanel.Dock="Right"/>
+                <TextBlock x:Name="statusMsg" Text="준비됨" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+
+        <!-- 토스트 오버레이 (Dialogs.Toast 가 여기에 붙인다) -->
+        <StackPanel x:Name="toastHost" Grid.Row="0" Grid.RowSpan="4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,40" IsHitTestVisible="False"/>
+    </Grid>
 </Window>
