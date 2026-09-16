@@ -31,6 +31,68 @@ public class ImageProcessorTests
         Assert.Equal(0, b.GetPixel(w - 1, h - 1).Alpha);
     }
 
+    [Theory]
+    [InlineData(SKEncodedOrigin.TopLeft, 3, 2, 0, 0)]        // 그대로
+    [InlineData(SKEncodedOrigin.TopRight, 3, 2, 2, 0)]       // 좌우 반전 → 표식이 오른쪽 위
+    [InlineData(SKEncodedOrigin.BottomRight, 3, 2, 2, 1)]    // 180° → 오른쪽 아래
+    [InlineData(SKEncodedOrigin.BottomLeft, 3, 2, 0, 1)]     // 상하 반전 → 왼쪽 아래
+    [InlineData(SKEncodedOrigin.LeftTop, 2, 3, 0, 0)]        // 전치 → 왼쪽 위 (크기 바뀜)
+    [InlineData(SKEncodedOrigin.RightTop, 2, 3, 1, 0)]       // 시계 90° → 오른쪽 위
+    [InlineData(SKEncodedOrigin.RightBottom, 2, 3, 1, 2)]    // 반대각 전치 → 오른쪽 아래
+    [InlineData(SKEncodedOrigin.LeftBottom, 2, 3, 0, 2)]     // 반시계 90° → 왼쪽 아래
+    public void ApplyOrientation_MovesTopLeftMarker_LikeChrome(SKEncodedOrigin origin, int w, int h, int mx, int my)
+    {
+        // 3×2 그림: 왼쪽 위 픽셀만 빨강, 나머지 흰색. 브라우저(drawImage)는 EXIF 방향을 적용해 그렸다.
+        var src = new SKBitmap(new SKImageInfo(3, 2, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        src.Erase(SKColors.White);
+        src.SetPixel(0, 0, SKColors.Red);
+        var dst = ImageProcessor.ApplyOrientation(src, origin);
+        Assert.Equal((w, h), (dst.Width, dst.Height));
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+                Assert.Equal((x, y) == (mx, my) ? SKColors.Red : SKColors.White, dst.GetPixel(x, y));
+    }
+
+    [Fact]
+    public void Process_HonoursExifOrientation()
+    {
+        // EXIF Orientation=6(시계 90°) 이 붙은 JPEG 은 바로 세워져야 한다
+        using var bmp = new SKBitmap(new SKImageInfo(40, 20, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        bmp.Erase(SKColors.White);
+        using (var c = new SKCanvas(bmp)) c.DrawRect(2, 2, 10, 10, new SKPaint { Color = SKColors.Black });
+        using var img = SKImage.FromBitmap(bmp);
+        using var data = img.Encode(SKEncodedImageFormat.Jpeg, 95);
+        var jpg = WithExifOrientation(data.ToArray(), 6);
+
+        using var codec = SKCodec.Create(new SKMemoryStream(jpg));
+        Assert.Equal(SKEncodedOrigin.RightTop, codec!.EncodedOrigin);   // 태그가 붙었는지
+
+        using var outp = ImageProcessor.Process(jpg, autoTransparent: false);
+        Assert.Equal((20, 40), (outp.Width, outp.Height));            // 가로 40×20 → 세로 20×40
+        // 왼쪽 위 검정 사각형이 시계 90° 회전하면 오른쪽 위로 간다
+        Assert.True(outp.GetPixel(20 - 7, 7).Red < 80);
+        Assert.True(outp.GetPixel(7, 7).Red > 200);
+    }
+
+    // JFIF 바로 뒤에 APP1 Exif(Orientation 만) 를 끼워 넣는다
+    private static byte[] WithExifOrientation(byte[] jpeg, ushort orientation)
+    {
+        var tiff = new List<byte> { 0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08 };      // 빅엔디언 TIFF 머리
+        tiff.AddRange(new byte[] { 0x00, 0x01 });                                           // IFD 항목 1개
+        tiff.AddRange(new byte[] { 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, (byte)(orientation >> 8), (byte)orientation, 0x00, 0x00 });
+        tiff.AddRange(new byte[] { 0x00, 0x00, 0x00, 0x00 });                               // 다음 IFD 없음
+        var payload = new List<byte> { (byte)'E', (byte)'x', (byte)'i', (byte)'f', 0, 0 };
+        payload.AddRange(tiff);
+        var len = payload.Count + 2;
+        var seg = new List<byte> { 0xFF, 0xE1, (byte)(len >> 8), (byte)len };
+        seg.AddRange(payload);
+        var outp = new List<byte>();
+        outp.AddRange(jpeg.Take(2));      // SOI
+        outp.AddRange(seg);
+        outp.AddRange(jpeg.Skip(2));
+        return outp.ToArray();
+    }
+
     [Fact]
     public void OpaqueJpg_BecomesTransparentAtEdges_KeepsInterior()
     {

@@ -98,7 +98,11 @@ public static class Dialogs
     /// <summary>오른쪽 아래 잠깐 뜨는 알림. owner 의 "toastHost" 패널에 붙인다 (없으면 상태 없이 무시).</summary>
     public static void Toast(Window? owner, string msg, ToastLevel level = ToastLevel.Info, int? ms = null)
     {
-        if (owner?.FindName("toastHost") is not Panel host) return;
+        // 토스트 패널은 주 창에만 있다 — 설정창 같은 자식 창이 부르면 Owner 를 따라 올라가 찾는다
+        Panel? host = null;
+        for (var w = owner; w is not null && host is null; w = w.Owner)
+            host = w.FindName("toastHost") as Panel;
+        if (host is null) return;
         var (bg, fg) = level switch
         {
             ToastLevel.Ok => (B("PassBrush"), Brushes.White),

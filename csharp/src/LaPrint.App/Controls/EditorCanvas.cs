@@ -141,6 +141,9 @@ public sealed class EditorCanvas : SKElement
     /// <summary>마우스가 라벨 위를 지날 때 "x.x, y.y mm" (선택이 있으면 "· w×h" 도).</summary>
     public event Action<string>? HoverChanged;
 
+    /// <summary>잠금이 아닌 상태에서 왼쪽 버튼 더블클릭 (두 번째 클릭은 드래그를 시작하지 않는다).</summary>
+    public event Action? DoubleClicked;
+
     /* ================= 좌표 ================= */
 
     public (double X, double Y) MmToPx(double x, double y) => (x * View.Scale + View.Ox, y * View.Scale + View.Oy);
@@ -640,6 +643,14 @@ public sealed class EditorCanvas : SKElement
             return;
         }
         if (e.ChangedButton != MouseButton.Left) return;
+
+        // 더블클릭: 첫 클릭이 이미 선택을 끝냈다 — 두 번째 클릭으로 이동 드래그를 시작해 포커스를 뺏지 않는다
+        if (e.ClickCount == 2)
+        {
+            e.Handled = true;
+            DoubleClicked?.Invoke();
+            return;
+        }
 
         var dir = HitHandle(p.X, p.Y);
         if (dir is not null)

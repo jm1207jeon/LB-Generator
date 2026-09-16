@@ -21,6 +21,24 @@ public class PreflightTests
     };
 
     [Fact]
+    public void ManualImage_WithUnreadableDataUrl_Warns()
+    {
+        // 수동 배치 그림의 데이터가 손상되면 라벨에서 빠진다 — 검사에서 알려야 한다 (슬롯이 아니므로 IMG_MISSING 계열이 아님)
+        var t = new LabelTemplate { Label = new LabelSize { W = 50, H = 30 } };
+        var im = new ImageObject { Id = "logo", X = 1, Y = 1, W = 10, H = 10, DataUrl = "data:image/png;base64,AAAA" };
+        t.Objects.Add(im);
+        var f = new Fields();
+        var res = Preflight.Run(t, CtxOf(t, f, null), new ValidationRules(), 300);
+        var w = Assert.Single(res.Warnings, i => i.Code == "IMG_BROKEN");
+        Assert.Equal("logo", w.ObjId);
+        Assert.Contains("그림을 읽을 수 없습니다", w.Msg);
+
+        // 비트맵이 있으면 조용하다
+        im.Bitmap = new SkiaSharp.SKBitmap(2, 2);
+        Assert.DoesNotContain(Preflight.Run(t, CtxOf(t, f, null), new ValidationRules(), 300).All, i => i.Code == "IMG_BROKEN");
+    }
+
+    [Fact]
     public async Task Sample_Item_Has_No_Errors()
     {
         var t = Pmfl();

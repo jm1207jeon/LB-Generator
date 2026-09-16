@@ -14,7 +14,7 @@ LaPrint     라벨을 만들어 출력한다     (출력)
 
 ## 실행 (Windows)
 
-1. GitHub **Releases › Latest Build** 에서 `LaPrint-win-x64-*.zip` 을 받아 폴더에 풉니다.
+1. GitHub **Releases › Latest Build** 에서 `LaPrint-win-x64-latest.zip` 을 받아 폴더에 풉니다.
 2. `LaPrint.exe` 를 실행합니다. .NET 설치가 필요 없는 단일 실행 파일입니다 (Windows 10 이상, x64).
 3. 처음 실행하면 안내창이 뜹니다. **[샘플 데이터로 체험]** 을 누르면 동봉된 샘플 DB와 제품 그림으로
    폴더 지정 없이 바로 써 볼 수 있습니다. 실제로 쓰실 때는 ⚙ 설정 › 폴더 경로에서
@@ -30,7 +30,7 @@ LaPrint     라벨을 만들어 출력한다     (출력)
 dotnet test csharp/tests/LaPrint.Core.Tests -c Release      # 골든 테스트
 dotnet run --project csharp/src/LaPrint.App -c Release      # 실행 (Windows)
 dotnet publish csharp/src/LaPrint.App -c Release -r win-x64 --self-contained true ^
-  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish   # 단일 exe
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o csharp/publish   # 단일 exe
 ```
 
 GitHub Actions(`.github/workflows/build-csharp.yml`)가 windows-latest 에서 테스트 → 단일 exe → zip → `latest-build` 릴리스를 자동으로 만듭니다.

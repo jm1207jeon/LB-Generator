@@ -111,9 +111,15 @@ public class Gs1GoldenTests
             Gs1.ToFnc1Stream("(01)08806367058034(10)LOT1(17)290531(240)42-0401(21)3"));
         // 마지막 가변길이 AI 뒤에는 GS 를 붙이지 않는다
         Assert.Equal("0108806367058034" + "10LOT1", Gs1.ToFnc1Stream("(01)08806367058034(10)LOT1"));
-        // 사전에 없는 AI 는 가변길이로 본다
-        Assert.Equal("3103000123" + GS + "10L1", Gs1.ToFnc1Stream("(3103)000123(10)L1"));
+        // 사전에 없어도 GS1 이 길이를 미리 정한 AI(3103 = 순중량 kg, 앞 두 자리 31)는 구분자 없음 (bwip-js/BWIPP 와 동일)
+        Assert.Equal("3103000123" + "10L1", Gs1.ToFnc1Stream("(3103)000123(10)L1"));
         Assert.Equal("10L1" + GS + "3103000123", Gs1.ToFnc1Stream("(10)L1(3103)000123"));
+        // 사전에 없고 길이도 정해지지 않은 AI(400 = 고객 주문번호)는 가변길이 → 구분자
+        Assert.Equal("400PO1" + GS + "10L1", Gs1.ToFnc1Stream("(400)PO1(10)L1"));
+        Assert.True(Gs1.IsPredefinedLength("3103"));
+        Assert.True(Gs1.IsPredefinedLength("415"));
+        Assert.False(Gs1.IsPredefinedLength("400"));
+        Assert.False(Gs1.IsPredefinedLength("8017"));
         // 고정길이 연속은 구분자 없음
         Assert.Equal("0108806367058034" + "17290531", Gs1.ToFnc1Stream("(01)08806367058034(17)290531"));
         // 괄호 표기가 아니면 그대로

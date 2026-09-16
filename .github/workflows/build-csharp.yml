@@ -12,6 +12,11 @@ on:
 permissions:
   contents: write
 
+# 'latest-build' 릴리스를 두 실행이 동시에 고치지 않도록 한 줄로 세운다
+concurrency:
+  group: build-csharp-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
@@ -83,7 +88,13 @@ jobs:
           path: LaPrint-win-x64-${{ steps.version.outputs.label }}.zip
           retention-days: 30
 
-      # 항상 최신 빌드를 'latest-build' 릴리스에 게시 (Releases 페이지에서 바로 다운로드)
+      # 항상 최신 빌드를 'latest-build' 릴리스에 게시 (Releases 페이지에서 바로 다운로드).
+      # 자산 이름을 고정해 두어야 action-gh-release 가 이전 빌드를 덮어쓴다 — SHA 이름 zip 이 쌓이지 않는다.
+      - name: Copy as fixed-name asset
+        if: github.ref_type != 'tag'
+        shell: pwsh
+        run: Copy-Item "LaPrint-win-x64-${{ steps.version.outputs.label }}.zip" "LaPrint-win-x64-latest.zip"
+
       - name: Publish rolling release
         if: github.ref_type != 'tag'
         uses: softprops/action-gh-release@v2
@@ -92,9 +103,10 @@ jobs:
           name: "Latest Build (자동 빌드)"
           body: |
             GitHub Actions가 자동 빌드한 최신 실행 파일입니다.
-            - `LaPrint-win-x64-*.zip`을 풀고 `LaPrint.exe`를 실행하세요 (.NET 설치 불필요, 단일 실행 파일)
+            - `LaPrint-win-x64-latest.zip`을 풀고 `LaPrint.exe`를 실행하세요 (.NET 설치 불필요, 단일 실행 파일)
             - 처음 실행하면 안내창이 뜹니다. [샘플 데이터로 체험]으로 폴더 지정 없이 바로 써 볼 수 있습니다.
-          files: LaPrint-win-x64-${{ steps.version.outputs.label }}.zip
+            - 빌드 원본: `${{ github.ref_name }}` @ `${{ steps.version.outputs.label }}`
+          files: LaPrint-win-x64-latest.zip
           prerelease: true
 
       - name: Create GitHub Release (tags only)

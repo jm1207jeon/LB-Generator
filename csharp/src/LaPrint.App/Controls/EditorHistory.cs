@@ -114,21 +114,7 @@ internal sealed class EditorHistory
     }
 
     /// <summary>DataUrl(브라우저판 호환 · 파일 직접 지정)만 있고 비트맵이 없으면 디코드한다.</summary>
-    public static void EnsureBitmap(ImageObject im)
-    {
-        if (im.Bitmap is not null || string.IsNullOrEmpty(im.DataUrl)) return;
-        try
-        {
-            var comma = im.DataUrl.IndexOf(',');
-            if (comma < 0) return;
-            var bytes = Convert.FromBase64String(im.DataUrl[(comma + 1)..]);
-            im.Bitmap = SKBitmap.Decode(bytes);
-        }
-        catch
-        {
-            im.Bitmap = null;
-        }
-    }
+    public static void EnsureBitmap(ImageObject im) => im.EnsureBitmap();
 
     /// <summary>객체 하나의 깊은 복사 (JSON 왕복). 비트맵은 공유한다.</summary>
     public static LabelObject Clone(LabelObject o)

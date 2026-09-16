@@ -65,6 +65,26 @@ public class ZplCompressTests
     }
 
     [Fact]
+    public void RepeatCodes_Over400_UseMultipleZ_NeverPastZ()
+    {
+        // 반복 코드는 z(400)이 끝이다. 420개 이상의 연속 니블이 줄 끝까지 가지 않으면 (zpl.js 는 '{' 를 냈다) 'z' 를 이어 붙여야 한다
+        // 210 바이트 F (420 니블) + 0x0F 하나 → 420 = z(400) + g(20), 그 뒤 '0' 'F' 그리고 줄 끝
+        var row = new byte[212];
+        for (int i = 0; i < 210; i++) row[i] = 0xFF;
+        row[210] = 0x0F;
+        row[211] = 0x00;
+        var s = ZplCompress.CompressRows(row, 212, 1);
+        Assert.Equal("zgF0F,", s);
+        Assert.DoesNotContain(s, ch => ch > 'z');
+
+        // 830 니블 = z z g P (400+400+20+10; G=1…P=10…Y=20)
+        var row2 = new byte[416];
+        for (int i = 0; i < 415; i++) row2[i] = 0xFF;
+        row2[415] = 0x00;
+        Assert.Equal("zzgPF,", ZplCompress.CompressRows(row2, 416, 1));
+    }
+
+    [Fact]
     public void SameRow_UsesColon_ButNotForFirstRow()
     {
         var bytes = new byte[] { 0x0F, 0x0F, 0x0F };

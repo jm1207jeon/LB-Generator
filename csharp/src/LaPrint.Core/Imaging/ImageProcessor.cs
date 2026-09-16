@@ -44,7 +44,36 @@ public static class ImageProcessor
         var info = codec.Info.WithColorType(SKColorType.Rgba8888).WithAlphaType(SKAlphaType.Unpremul);
         var bmp = SKBitmap.Decode(codec, info);
         if (bmp is null) throw new InvalidOperationException("이미지 디코딩 실패");
-        return bmp;
+        // 브라우저(imaging.js drawImage)는 EXIF 회전을 적용해 그렸다 — 같은 방향으로 맞춘다
+        return ApplyOrientation(bmp, codec.EncodedOrigin);
+    }
+
+    /// <summary>EXIF 방향(EncodedOrigin)을 픽셀에 적용해 바로 선 비트맵을 돌려준다. TopLeft 면 그대로.</summary>
+    public static SKBitmap ApplyOrientation(SKBitmap src, SKEncodedOrigin origin)
+    {
+        ArgumentNullException.ThrowIfNull(src);
+        if (origin == SKEncodedOrigin.TopLeft || origin == SKEncodedOrigin.Default) return src;
+        var swap = origin is SKEncodedOrigin.LeftTop or SKEncodedOrigin.RightTop or SKEncodedOrigin.RightBottom or SKEncodedOrigin.LeftBottom;
+        var w = swap ? src.Height : src.Width;
+        var h = swap ? src.Width : src.Height;
+        var dst = new SKBitmap(new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Unpremul));
+        using (var canvas = new SKCanvas(dst))
+        {
+            canvas.Clear(SKColors.Transparent);
+            switch (origin)
+            {
+                case SKEncodedOrigin.TopRight: canvas.Translate(w, 0); canvas.Scale(-1, 1); break;
+                case SKEncodedOrigin.BottomRight: canvas.Translate(w, h); canvas.RotateDegrees(180); break;
+                case SKEncodedOrigin.BottomLeft: canvas.Translate(0, h); canvas.Scale(1, -1); break;
+                case SKEncodedOrigin.LeftTop: canvas.Scale(-1, 1); canvas.RotateDegrees(90); break;
+                case SKEncodedOrigin.RightTop: canvas.Translate(w, 0); canvas.RotateDegrees(90); break;
+                case SKEncodedOrigin.RightBottom: canvas.Translate(w, h); canvas.RotateDegrees(180); canvas.Scale(-1, 1); canvas.RotateDegrees(90); break;   // 반대각 전치
+                case SKEncodedOrigin.LeftBottom: canvas.Translate(0, h); canvas.RotateDegrees(-90); break;
+            }
+            canvas.DrawBitmap(src, 0, 0);
+        }
+        src.Dispose();
+        return dst;
     }
 
     /// <summary>알파 &lt; 250 인 픽셀이 17개 이상이면 이미 투명 배경으로 간주한다.</summary>

@@ -269,26 +269,36 @@ public partial class SettingsWindow : Window
         /* 라벨DB */
         var g1 = new StackPanel();
         ComboBox fsel = new() { MinWidth = 260 }, bsel = new() { MinWidth = 260 };
-        void RefreshDbFileSelect()
+        // 폴더 목록은 네트워크 공유에서 오래 걸릴 수 있다 — 스레드 풀에서 읽고 결과가 최신 폴더일 때만 반영
+        async void RefreshDbFileSelect()
         {
             var dir = _settings.Paths.DbDir;
             List<string>? files = null;
-            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            if (!string.IsNullOrWhiteSpace(dir))
             {
+                foreach (var sel in new[] { fsel, bsel })
+                {
+                    sel.Items.Clear();
+                    sel.Items.Add(new ComboBoxItem { Content = "(폴더를 읽는 중…)", Tag = "" });
+                    sel.SelectedIndex = 0;
+                    sel.IsEnabled = false;
+                }
                 try
                 {
-                    files = Directory.EnumerateFiles(dir)
-                        .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".xlsx" or ".xlsm" or ".xls" or ".csv")
-                        .Select(f => Path.GetFileName(f)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+                    files = await Task.Run(() => !Directory.Exists(dir) ? null
+                        : Directory.EnumerateFiles(dir)
+                            .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".xlsx" or ".xlsm" or ".xls" or ".csv")
+                            .Select(f => Path.GetFileName(f)).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList());
                 }
                 catch (Exception ex) { AppLog.Warn("DB 폴더 목록 읽기 실패: " + ex.Message); }
+                if (dir != _settings.Paths.DbDir) return;      // 읽는 동안 폴더가 바뀌었다 — 새 호출이 채운다
             }
             foreach (var (sel, cur) in new[] { (fsel, _settings.Paths.DbFileName), (bsel, _settings.Paths.DbFileNameBsc) })
             {
                 sel.Items.Clear();
                 if (files is null)
                 {
-                    sel.Items.Add(new ComboBoxItem { Content = "(폴더를 먼저 지정하세요)", Tag = "" });
+                    sel.Items.Add(new ComboBoxItem { Content = string.IsNullOrWhiteSpace(dir) ? "(폴더를 먼저 지정하세요)" : "(폴더를 찾을 수 없습니다)", Tag = "" });
                     sel.SelectedIndex = 0;
                     sel.IsEnabled = false;
                     continue;
@@ -372,17 +382,24 @@ public partial class SettingsWindow : Window
         Grid.SetColumn(clr, 3);
         g.Children.Add(clr);
 
-        void Sync()
+        async void Sync()
         {
             var v = get();
             var has = !string.IsNullOrWhiteSpace(v);
-            var exists = has && Directory.Exists(v);
             pv.Text = has ? v : desc;
             pv.ToolTip = has ? v : null;
-            dot.Fill = !has ? B("Ink3Brush") : (exists ? B("PassBrush") : B("WarnLineBrush"));
-            pv.Foreground = has && !exists ? B("WarnBrush") : B("Ink3Brush");
-            if (has && !exists) pv.Text = v + " — 지금은 찾을 수 없습니다 (네트워크 연결 확인)";
+            pv.Foreground = B("Ink3Brush");
+            dot.Fill = B("Ink3Brush");
             clr.Visibility = has ? Visibility.Visible : Visibility.Collapsed;
+            if (!has) return;
+            // 끊긴 네트워크 공유의 Directory.Exists 는 SMB 시간 초과만큼 걸린다 — 창이 멎지 않게 뒤에서 확인
+            bool exists;
+            try { exists = await Task.Run(() => Directory.Exists(v)); }
+            catch { exists = false; }
+            if (get() != v) return;
+            dot.Fill = exists ? B("PassBrush") : B("WarnLineBrush");
+            pv.Foreground = exists ? B("Ink3Brush") : B("WarnBrush");
+            if (!exists) pv.Text = v + " — 지금은 찾을 수 없습니다 (네트워크 연결 확인)";
         }
         pick.Click += (_, _) =>
         {

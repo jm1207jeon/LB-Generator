@@ -72,7 +72,13 @@ public static class Preflight
                 {
                     // 슬롯인데 그림이 아직 없다 (브라우저판의 dataUrl = 여기서는 비트맵)
                     var loaded = (ctx.ImageOf is not null ? ctx.ImageOf(im.Id) : null) ?? im.Bitmap;
-                    if (!string.IsNullOrEmpty(im.SourceField) && loaded is null && string.IsNullOrEmpty(im.DataUrl))
+                    if (string.IsNullOrEmpty(im.SourceField))
+                    {
+                        // 수동 배치 그림: 서식에 든 이미지 데이터를 읽지 못했으면 라벨에서 소리 없이 빠진다 — 반드시 알린다
+                        if (!string.IsNullOrEmpty(im.DataUrl) && loaded is null)
+                            Add("warn", "IMG_BROKEN", $"\"{name}\" 그림을 읽을 수 없습니다. 서식에 저장된 이미지 데이터가 손상되었습니다 — 그림을 다시 넣으세요.", o.Id);
+                    }
+                    else if (loaded is null)
                     {
                         var fn = SlotLoader.SlotFileName(im.SourceField, fields, row);
                         if (string.IsNullOrEmpty(fn))

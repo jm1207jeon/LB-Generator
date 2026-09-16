@@ -21,6 +21,8 @@ public partial class MainWindow
     /// <summary>SettingsWindow.ShowAsync(this, Settings, SettingsStore, History, page) → ApplyUiSettings, ApplyProfileToMap, Images 재생성, UpdateChips, Refresh (app.js openSettings).</summary>
     private async Task OpenSettingsAsync(string? page = null)
     {
+        // 출력 중에 설정을 바꾸면 exporter 가 그리고 있는 슬롯 그림·DB 가 바뀐다 — 끝난 뒤에 열게 한다
+        if (IsPrinting) { Toast("출력이 끝난 뒤 설정을 열 수 있습니다.", ToastLevel.Warn); return; }
         var dbBefore = (Settings.Paths.DbDir, Settings.Paths.DbFileName, Settings.Paths.DbFileNameBsc);
         await SettingsWindow.ShowAsync(this, Settings, SettingsStore, History, page);
         ApplyUiSettings();

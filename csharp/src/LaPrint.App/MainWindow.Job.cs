@@ -253,7 +253,7 @@ public partial class MainWindow
     {
         var n = Queue.Count;
         var total = Queue.TotalLabels;
-        var running = Queue.Running;
+        var running = IsPrinting;
         var isZebra = Settings.Output.Target == "zebra";
         var verb = isZebra ? "ZEBRA 출력" : "출력";
         var blocked = (LastPreflight?.Errors.Count ?? 0) > 0;
@@ -262,7 +262,7 @@ public partial class MainWindow
         btnPrint.IsEnabled = !blocked && !running;
         btnPrintQueue.Visibility = n == 0 ? Visibility.Collapsed : Visibility.Visible;
         btnPrintQueue.Content = $"큐 {total}장 {verb}";
-        btnPrintQueue.IsEnabled = !running;
+        btnPrintQueue.IsEnabled = !running && !_queueValidating;
         btnPrintQueue.Style = n > 0 ? Res<Style>("PrimaryButton") : null;
         btnPrint.Style = n == 0 ? Res<Style>("PrimaryButton") : null;
 
@@ -377,10 +377,12 @@ public partial class MainWindow
             var profile = ProfileKey;
             var keyCol = Map.KeyCol;
             var cacheKey = remember ? profile : profile + "-sample";
-            var lastWrite = File.GetLastWriteTime(path);
-            // 12,000행 파싱은 UI 스레드를 멈추므로 뒤에서 한다 (같은 수정 시각이면 캐시)
+            // 12,000행 파싱은 UI 스레드를 멈추므로 뒤에서 한다 (같은 수정 시각이면 캐시).
+            // 네트워크 공유의 파일 시각 조회도 SMB 시간 초과만큼 걸릴 수 있어 함께 뒤에서 한다.
+            var lastWrite = DateTime.MinValue;
             var db = await Task.Run(() =>
             {
+                lastWrite = File.GetLastWriteTime(path);
                 var cached = DbCache.Get(cacheKey, lastWrite);
                 if (cached is not null) return cached;
                 LabelDb parsed;
@@ -431,9 +433,11 @@ public partial class MainWindow
         var path = string.IsNullOrWhiteSpace(Settings.Paths.DbDir) || string.IsNullOrWhiteSpace(fileName)
             ? null : Path.Combine(Settings.Paths.DbDir, fileName);
 
-        if (path is not null && File.Exists(path))
+        // 네트워크 공유가 끊겨 있으면 File.Exists 가 SMB 시간 초과(수십 초)만큼 멈춘다 — UI 스레드 밖에서 확인한다
+        var probe = path is null ? null
+            : await Task.Run(() => File.Exists(path) ? (DateTime?)File.GetLastWriteTime(path) : null);
+        if (path is not null && probe is DateTime lastWrite)
         {
-            var lastWrite = File.GetLastWriteTime(path);
             var changed = stored is null || Math.Abs((stored.Value - lastWrite).TotalSeconds) >= 1;
             if (!changed && Db is not null) { SetStatus("라벨DB 변경 없음 — 캐시 사용"); return; }
             var hadStamp = stored is not null;

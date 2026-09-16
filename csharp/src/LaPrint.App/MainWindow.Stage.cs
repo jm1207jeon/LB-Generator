@@ -35,13 +35,13 @@ public partial class MainWindow
         SyncLabelSizeUi();
         UpdateUndoButtons();
 
-        // 더블클릭 = 텍스트 내용 편집 (app.js ed.onDoubleClick)
-        stage.MouseLeftButtonDown += (_, e) =>
+        // 더블클릭 = 텍스트 내용 편집 (app.js ed.onDoubleClick).
+        // EditorCanvas 가 모든 왼쪽 클릭을 Handled 로 처리하므로 MouseLeftButtonDown 대신 캔버스의 DoubleClicked 를 받는다.
+        stage.DoubleClicked += () =>
         {
-            if (e.ClickCount != 2 || Locked) return;
+            if (Locked) return;
             var sel = Editor.SelectedObjects();
             if (sel.Count != 1 || sel[0] is not TextObject) return;
-            e.Handled = true;   // 두 번째 클릭이 이동 드래그를 시작해 포커스를 뺏지 않도록
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 inspTabs.SelectedItem = tabProps;

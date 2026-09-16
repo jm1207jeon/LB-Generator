@@ -345,13 +345,14 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (Queue.Running)
+        if (IsPrinting)
         {
             var ok = Dialogs.Confirm(this,
                 "큐 출력이 진행 중입니다. 지금 닫으면 출력이 중단됩니다.\n\n그래도 닫을까요?",
                 "출력 진행 중", "닫기", "취소", danger: true).GetAwaiter().GetResult();
             if (!ok) { e.Cancel = true; return; }
             try { Queue.Cancel(); } catch (Exception ex) { AppLog.Warn("큐 중지 실패: " + ex.Message); }
+            try { _zebraCts?.Cancel(); } catch (Exception ex) { AppLog.Warn("ZEBRA 전송 중지 실패: " + ex.Message); }
         }
         _saveTimer.Stop();
         SaveNow();
@@ -369,7 +370,7 @@ public partial class MainWindow : Window
 
         if (mod && key == Key.Enter) { e.Handled = true; AddCurrentToQueue(); return; }
         if (mod && key == Key.P) { e.Handled = true; Run(shift ? DoPrintQueueAsync : DoPrintSingleAsync); return; }
-        if (mod && key == Key.OemComma) { e.Handled = true; Run(() => OpenSettingsAsync(null)); return; }
+        if (mod && key == Key.OemComma) { e.Handled = true; if (!IsPrinting) Run(() => OpenSettingsAsync(null)); return; }
         if (key == Key.F1) { e.Handled = true; ShowHelp(); return; }
         if (key == Key.F5) { e.Handled = true; TogglePreview(); return; }
         if (mod && key == Key.L) { e.Handled = true; SetLocked(!Locked); return; }
@@ -377,9 +378,9 @@ public partial class MainWindow : Window
         if (mod && (key == Key.Down || key == Key.Up)) { e.Handled = true; OpenDrawer(key == Key.Down); return; }
         if (mod && key == Key.B && !inField) { e.Handled = true; chkBold.IsChecked = chkBold.IsChecked != true; OnBoldClick(chkBold, new RoutedEventArgs()); return; }
         if (mod && key == Key.I && !inField) { e.Handled = true; chkItalic.IsChecked = chkItalic.IsChecked != true; OnItalicClick(chkItalic, new RoutedEventArgs()); return; }
-        if (mod && key == Key.V && !inField)
+        if (mod && key == Key.V && !inField && !IsPrinting)
         {
-            // 큐 영역에 붙여넣기 — 표(탭/줄바꿈)일 때만
+            // 큐 영역에 붙여넣기 — 표(탭/줄바꿈)일 때만 (출력 중에는 큐를 바꾸지 않는다)
             string? txt = null;
             try { txt = Clipboard.ContainsText() ? Clipboard.GetText() : null; } catch { }
             if (!string.IsNullOrEmpty(txt) && (txt.Contains('\t') || txt.Contains('\n')))

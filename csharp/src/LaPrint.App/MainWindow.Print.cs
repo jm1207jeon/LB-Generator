@@ -94,10 +94,22 @@ public partial class MainWindow
         return _bgBitmap;
     }
 
+    /// <summary>1장 PDF · ZEBRA 전송처럼 QueueEngine 을 거치지 않는 출력이 진행 중인지. 모든 잠금 판단은 IsPrinting 을 쓴다.</summary>
+    private bool _printBusy;
+
+    /// <summary>ZEBRA 연속 전송 중지용 (창 닫기).</summary>
+    private CancellationTokenSource? _zebraCts;
+
+    /// <summary>어떤 경로로든 출력이 진행 중인가 — 이 동안 두 번째 출력·편집·설정 변경은 막는다 (DESIGN §4-9).</summary>
+    internal bool IsPrinting => Queue.Running || _printBusy;
+
     /// <summary>출력 중 입력·서식 변경 잠금 (DESIGN §4-9). 큐 드로어의 일시정지/중지는 RenderQueue 가 맡는다.</summary>
     private void SetBusy(bool busy)
     {
+        _printBusy = busy;
         gboxJob.IsEnabled = !busy;
+        btnSettings.IsEnabled = !busy;
+        chips.IsEnabled = !busy;
         gboxRef.IsEnabled = !busy;
         stageBar.IsEnabled = !busy;
         inspector.IsEnabled = !busy;
@@ -117,15 +129,17 @@ public partial class MainWindow
     /// <summary>Ctrl+P / btnPrint — 오류 있으면 거부, target 에 따라 PrintSingleAsync 또는 PrintZebraAsync(false).</summary>
     private Task DoPrintSingleAsync()
     {
-        if (Queue.Running) return Task.CompletedTask;
+        if (IsPrinting) return Task.CompletedTask;
         return Settings.Output.Target == "zebra" ? PrintZebraAsync(false) : PrintSingleAsync();
     }
 
     /// <summary>Ctrl+Shift+P / btnPrintQueue — 큐 비었으면 안내, target 에 따라 PrintQueueAsync 또는 PrintZebraAsync(true).</summary>
     private Task DoPrintQueueAsync()
     {
-        if (Queue.Running) return Task.CompletedTask;
+        if (IsPrinting) return Task.CompletedTask;
         if (Queue.Count == 0) { Toast("큐가 비어 있습니다.", ToastLevel.Warn); return Task.CompletedTask; }
+        // 큰 큐의 배경 검증이 끝나기 전에는 상태가 채워지지 않은 행이 있다 — 검증 결과 없이 출력하면 안 된다
+        if (_queueValidating) { Toast("큐를 검증하는 중입니다. 검증이 끝난 뒤 출력하세요.", ToastLevel.Warn); return Task.CompletedTask; }
         return Settings.Output.Target == "zebra" ? PrintZebraAsync(true) : PrintQueueAsync();
     }
 
@@ -160,7 +174,8 @@ public partial class MainWindow
             {
                 Item = f.Get("ITEM"), Ref = f.Get("REF"), Lot = f.Get("LOT"), Sn = f.Get("SN"),
                 Mfg = f.Get("MFG"), Exp = f.Get("EXP"), Udi = f.Get("UDI_FULL"),
-                Copies = copies, FileName = res.FileName ?? "", Ok = true, Mode = "single", Profile = ProfileKey,
+                // PDF 1장 출력은 파일 하나(1쪽)를 만든다 — 품질기록에는 실제로 만든 수량을 남긴다 (app.js copies: 1)
+                Copies = 1, FileName = res.FileName ?? "", Ok = true, Mode = "single", Profile = ProfileKey,
             });
             var where = string.IsNullOrWhiteSpace(Settings.Paths.OutDir) ? " (다운로드)" : " → " + DirName(Settings.Paths.OutDir);
             SetStatus($"저장 완료: {res.FileName}{where}");
@@ -265,7 +280,12 @@ public partial class MainWindow
     {
         var byId = rows.ToDictionary(r => r.Id);
         var mode = Settings.Output.Mode == "merged" ? "merged" : "separate";
-        foreach (var (jobId, er) in res.Results)
+        // 용지 모드는 매수만큼 결과가 펼쳐져 온다 — 이력은 행(job)당 한 줄, 매수는 r.Copies 로 남긴다
+        IEnumerable<(string JobId, ExportResult Result)> results = res.OnPaper
+            ? res.Results.GroupBy(x => x.JobId).Select(g =>
+                (g.Key, g.All(x => x.Result.Ok) ? g.First().Result : g.First(x => !x.Result.Ok).Result))
+            : res.Results;
+        foreach (var (jobId, er) in results)
         {
             if (!byId.TryGetValue(jobId, out var r)) continue;
             var f = r.Fields ?? new Fields();
@@ -335,6 +355,10 @@ public partial class MainWindow
         }
 
         SetBusy(true);
+        UpdatePrintButton();
+        var zebraCts = new CancellationTokenSource();
+        _zebraCts = zebraCts;
+        var zct = zebraCts.Token;
         int done = 0, failed = 0;
         try
         {
@@ -358,6 +382,7 @@ public partial class MainWindow
             {
                 for (var i = 0; i < rows.Count; i++)
                 {
+                    if (zct.IsCancellationRequested) break;
                     var r = rows[i];
                     Fields f = r.Fields ?? new Fields();
                     try
@@ -391,6 +416,8 @@ public partial class MainWindow
         }
         finally
         {
+            _zebraCts = null;
+            zebraCts.Dispose();
             SetBusy(false);
             await LoadSlotImagesAsync(true);        // 화면을 현재 작업 건으로 되돌린다
             Editor.Invalidate();

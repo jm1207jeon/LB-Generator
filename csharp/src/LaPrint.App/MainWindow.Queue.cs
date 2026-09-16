@@ -211,7 +211,7 @@ public partial class MainWindow
         queueStatus.Text = _queueValidating ? "검증 중…" : "";
         btnQueuePause.Visibility = Visibility.Collapsed;
         btnQueueCancel.Visibility = Visibility.Collapsed;
-        queueTools.IsEnabled = !_queueValidating;
+        queueTools.IsEnabled = !_queueValidating && !IsPrinting;
         var verb = Settings.Output.Target == "zebra" ? "ZEBRA 출력" : "출력";
         btnQueueRun.Content = $"큐 {Queue.TotalLabels}장 {verb}";
         btnQueueRun.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -554,6 +554,7 @@ public partial class MainWindow
         }
         finally { _queueValidating = false; }
         RenderQueue();
+        UpdatePrintButton();
     }
 
     private void ValidateQueueCore()
@@ -635,7 +636,7 @@ public partial class MainWindow
     /// <summary>출력 중에는 편집 금지.</summary>
     private void OnQueueBeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
     {
-        if (Queue.Running || _queueValidating) e.Cancel = true;
+        if (IsPrinting || _queueValidating) e.Cancel = true;
     }
 
     /// <summary>편집이 끝난 셀 값을 Queue.Update 로 반영하고 다시 검증한다 (app.js cell onchange).</summary>

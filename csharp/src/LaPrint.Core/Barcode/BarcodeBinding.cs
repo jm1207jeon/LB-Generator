@@ -80,7 +80,9 @@ public static class BarcodeBinding
         var probe = BarcodeEncoder.Encode(sym.Id, data, o.HumanReadable);
         if (probe.Modules is null) return issues;
 
-        var modulesW = probe.ModulesW;
+        // 렌더러(LabelRenderer.DrawBarcode)는 조용한 영역(2D 1모듈 · 1D 10모듈)까지 같은 영역에 넣어 맞추므로
+        // 실제로 그려지는 모듈 폭은 조용한 영역을 포함한 총 모듈 수로 나눈 값이다 — 검사도 같은 기준을 써야 경고가 빠지지 않는다
+        var modulesW = probe.ModulesW + 2 * Math.Max(0, probe.QuietZone);
         var xDimMm = o.W / Math.Max(1, modulesW);
         if (sym.Is2D)
         {

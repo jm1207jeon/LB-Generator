@@ -111,6 +111,11 @@ public static class TemplateJson
                 if (string.IsNullOrEmpty(im.SourceField)) im.SourceField = "";
                 if (string.IsNullOrEmpty(im.FileName)) im.FileName = "";
                 if (string.IsNullOrEmpty(im.Error)) im.Error = "";
+                // 브라우저판은 슬롯의 dataUrl 을 행마다 바꿔 쓰는 캐시로 썼다 — 여기서는 슬롯 그림을 SlotLoader 가 읽으므로
+                // 서식에 남은 옛 dataUrl 은 버린다 (안 버리면 다른 품목의 그림이 되살아나고 누락 경고가 묻힌다).
+                if (im.SourceField.Length > 0) im.DataUrl = null;
+                else if (string.IsNullOrEmpty(im.DataUrl)) im.DataUrl = null;
+                else im.EnsureBitmap();          // 수동 배치 그림은 서식에 든 데이터가 곧 그림이다 — 읽자마자 비트맵으로
                 break;
 
             case BarcodeObject b:

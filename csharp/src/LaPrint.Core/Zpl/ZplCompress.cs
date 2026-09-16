@@ -11,7 +11,9 @@ public static class ZplCompress
     /// <summary>반복 횟수 → ZPL 반복 부호. g=20 … z=400 뒤에 G=1 … Y=20.</summary>
     private static string RepeatCode(int n)
     {
-        var s = new StringBuilder(2);
+        var s = new StringBuilder(4);
+        // 반복 코드는 z(400)까지만 있다. 그보다 긴 연속은 z 를 여러 번 이어 붙인다 (zpl.js 는 '{' 등 잘못된 문자를 냈음)
+        while (n > 400) { s.Append('z'); n -= 400; }
         int high = n / 20;
         if (high > 0) s.Append((char)('f' + high));
         int low = n % 20;

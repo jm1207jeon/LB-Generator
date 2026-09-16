@@ -107,14 +107,16 @@ public class BarcodeBindingTests
     {
         var probe = BarcodeEncoder.Encode("gs1datamatrix", Udi);
         Assert.Null(probe.Error);
-        // 모듈 크기가 0.236mm 가 되도록 영역을 잡는다 (ZXing 은 이 UDI 를 22×22 로 부호화 → 5.2mm)
-        var w = Math.Round(0.236 * probe.ModulesW, 1);
+        // 렌더러는 조용한 영역(양쪽 1모듈)까지 같은 영역에 넣어 그린다 — 검사도 같은 총 모듈 수로 나눈다.
+        // 모듈 크기가 0.236mm 가 되도록 영역을 잡는다 (ZXing 은 이 UDI 를 22×22 로 부호화 → 24모듈 = 5.7mm)
+        var totalW = probe.ModulesW + 2 * probe.QuietZone;
+        var w = Math.Round(0.236 * totalW, 1);
         var o = new BarcodeObject { Id = "b", Symbology = "gs1datamatrix", W = w, H = w };
         var issues = BarcodeBinding.CheckPhysical(o, Udi, 300);
         var x = Assert.Single(issues, i => i.Code == "BC_XDIM");
         Assert.Equal("warn", x.Level);
         Assert.StartsWith("바코드 모듈 크기가", x.Msg);
-        var xDim = (w / probe.ModulesW).ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
+        var xDim = (w / totalW).ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
         Assert.Equal($"바코드 모듈 크기가 {xDim}mm로 작습니다. GS1 권장 최소 0.254mm — 영역을 키우거나 데이터를 줄이세요.", x.Msg);
         Assert.DoesNotContain(issues, i => i.Code == "BC_HEIGHT");
 
@@ -133,8 +135,10 @@ public class BarcodeBindingTests
     {
         var o = new BarcodeObject { Id = "b", Symbology = "gs1-128", W = 50, H = 5 };
         var issues = BarcodeBinding.CheckPhysical(o, "(01)08806367058034(10)LOT1", 300);
-        var h = Assert.Single(issues);
+        var h = Assert.Single(issues, i => i.Code == "BC_HEIGHT");
         Assert.Equal(("warn", "BC_HEIGHT"), (h.Level, h.Code));
+        // 50mm 에 조용한 영역(양쪽 10모듈)까지 넣으면 막대가 0.25mm 아래로 내려간다 — 렌더러가 실제로 그리는 폭 기준으로 경고
+        Assert.Contains(issues, i => i.Code == "BC_XDIM");
         Assert.Equal("GS1-128 높이가 5.0mm입니다. 권장 최소 7.5mm (6.35mm 또는 폭의 15%).", h.Msg);
 
         // 넓지 않은 라벨은 6.35mm 기준
@@ -146,12 +150,12 @@ public class BarcodeBindingTests
     [Fact]
     public void CheckPhysical_NarrowBarsAndLowDpi()
     {
-        // code128 "ABC-123" = 112 모듈 → 25mm 에서 0.223mm, 203dpi 에서 1.8px
+        // code128 "ABC-123" = 112 모듈 + 조용한 영역 20 = 132 → 25mm 에서 0.189mm, 203dpi 에서 1.5px
         var o = new BarcodeObject { Id = "b", Symbology = "code128", W = 25, H = 10 };
         var issues = BarcodeBinding.CheckPhysical(o, "ABC-123", 203);
         Assert.Equal(new[] { "BC_XDIM", "BC_DPI" }, issues.Select(i => i.Code).ToArray());
-        Assert.Equal("막대 폭이 0.223mm로 좁습니다. 권장 최소 0.25mm.", issues[0].Msg);
-        Assert.Equal("203dpi에서 모듈이 1.8px입니다. 판독 안정성을 위해 해상도를 높이세요.", issues[1].Msg);
+        Assert.Equal("막대 폭이 0.189mm로 좁습니다. 권장 최소 0.25mm.", issues[0].Msg);
+        Assert.Equal("203dpi에서 모듈이 1.5px입니다. 판독 안정성을 위해 해상도를 높이세요.", issues[1].Msg);
         Assert.All(issues, i => Assert.Equal("warn", i.Level));
     }
 

@@ -7,6 +7,51 @@ namespace LaPrint.Core.Tests;
 
 public class TemplateJsonTests
 {
+    private static string TinyPngDataUrl()
+    {
+        using var bmp = new SkiaSharp.SKBitmap(4, 3);
+        bmp.Erase(SkiaSharp.SKColors.Red);
+        using var img = SkiaSharp.SKImage.FromBitmap(bmp);
+        using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        return "data:image/png;base64," + Convert.ToBase64String(data.ToArray());
+    }
+
+    [Fact]
+    public void Load_ManualImage_DecodesDataUrlIntoBitmap_AndKeepsDataUrlForSaving()
+    {
+        // '+이미지 파일' 로 넣은 그림은 dataUrl 만 저장된다 — 다시 읽을 때 비트맵이 없으면 라벨에서 소리 없이 사라진다
+        var json = "{\"label\":{\"w\":50,\"h\":30},\"objects\":[{\"type\":\"image\",\"id\":\"logo\",\"x\":1,\"y\":1,\"w\":10,\"h\":10,\"dataUrl\":\"" + TinyPngDataUrl() + "\"}]}";
+        var t = TemplateJson.Load(json);
+        var im = Assert.IsType<ImageObject>(t.Objects[0]);
+        Assert.NotNull(im.Bitmap);
+        Assert.Equal((4, 3), (im.Bitmap!.Width, im.Bitmap.Height));
+        Assert.False(string.IsNullOrEmpty(im.DataUrl));
+        // 저장 → 다시 읽기 왕복에서도 살아남는다
+        var again = TemplateJson.Load(TemplateJson.Save(t));
+        Assert.NotNull(((ImageObject)again.Objects[0]).Bitmap);
+    }
+
+    [Fact]
+    public void Load_SlotImage_DropsStaleBrowserDataUrl()
+    {
+        // 브라우저판은 슬롯의 dataUrl 을 행마다 바꿔 쓰는 캐시로 썼다 — 서식에 남은 다른 품목의 그림은 버려야 한다
+        var json = "{\"label\":{\"w\":50,\"h\":30},\"objects\":[{\"type\":\"image\",\"id\":\"s\",\"x\":1,\"y\":1,\"w\":10,\"h\":10,\"sourceField\":\"IMG_STENT\",\"dataUrl\":\"" + TinyPngDataUrl() + "\"}]}";
+        var t = TemplateJson.Load(json);
+        var im = Assert.IsType<ImageObject>(t.Objects[0]);
+        Assert.Null(im.DataUrl);
+        Assert.Null(im.Bitmap);
+        Assert.DoesNotContain("dataUrl\": \"data:", TemplateJson.Save(t));
+    }
+
+    [Fact]
+    public void Load_BrokenDataUrl_LeavesBitmapNull_WithoutThrowing()
+    {
+        var json = "{\"label\":{\"w\":50,\"h\":30},\"objects\":[{\"type\":\"image\",\"id\":\"logo\",\"x\":1,\"y\":1,\"w\":10,\"h\":10,\"dataUrl\":\"data:image/png;base64,AAAA\"}]}";
+        var im = Assert.IsType<ImageObject>(TemplateJson.Load(json).Objects[0]);
+        Assert.Null(im.Bitmap);
+        Assert.Equal("data:image/png;base64,AAAA", im.DataUrl);
+    }
+
     [Fact]
     public void Default_HasA3SheetWithEmbeddedBackground()
     {

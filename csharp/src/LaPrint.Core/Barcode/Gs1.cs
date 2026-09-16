@@ -60,6 +60,17 @@ public static partial class Gs1
     [GeneratedRegex(@"\((\d{2,4})\)([^(]*)")]
     private static partial Regex AiRegex();
 
+    // GS1 일반사양 §7.8.4 — 앞 두 자리가 이 값이면 길이가 미리 정해진 AI 라서 뒤에 FNC1 구분자를 넣지 않는다
+    private static readonly HashSet<string> PredefinedLengthPrefixes = new()
+    {
+        "00", "01", "02", "03", "04", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+        "31", "32", "33", "34", "35", "36", "41",
+    };
+
+    /// <summary>사전에 없는 AI 라도 GS1 이 길이를 미리 정해 둔 AI(앞 두 자리 기준)면 구분자가 필요 없다.</summary>
+    public static bool IsPredefinedLength(string ai)
+        => !string.IsNullOrEmpty(ai) && ai.Length >= 2 && PredefinedLengthPrefixes.Contains(ai[..2]);
+
     [GeneratedRegex(@"^\d{6}$")]
     private static partial Regex SixDigits();
 
@@ -137,8 +148,8 @@ public static partial class Gs1
         {
             var (ai, value, def) = ais[i];
             sb.Append(ai).Append(value);
-            // 사전에 없는 AI 는 가변길이로 본다
-            var variable = def is null || !def.Fixed;
+            // 사전에 있으면 그 정의를, 없으면 GS1 의 고정길이 접두 목록을 따른다 (bwip-js/BWIPP 와 같은 결과)
+            var variable = def is null ? !IsPredefinedLength(ai) : !def.Fixed;
             if (variable && i < ais.Count - 1) sb.Append(GS);
         }
         return sb.ToString();

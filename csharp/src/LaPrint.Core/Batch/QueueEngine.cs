@@ -348,7 +348,8 @@ public sealed class QueueEngine
         ArgumentNullException.ThrowIfNull(prepareJob);
 
         if (Running) return Fail("이미 실행 중입니다.");
-        var targets = _rows.Where(r => r.Status != "done").ToList();
+        // batch.js:326 — 앱은 항상 skipErrors:true 로 부른다. 검증에서 오류가 난 행은 절대 출력하지 않는다.
+        var targets = _rows.Where(r => r.Status != "done" && r.Status != "error").ToList();
         if (targets.Count == 0) return Fail("출력할 행이 없습니다.");
 
         var total = targets.Sum(CopiesOf);
@@ -360,13 +361,9 @@ public sealed class QueueEngine
         BatchResult result;
         try
         {
-            // 행마다 다른 데이터로 그려야 하므로 exporter 에 넘기기 전에 이 행의 데이터를 준비한다
-            var jobs = new List<ExportJob>(targets.Count);
-            foreach (var r in targets)
-            {
-                await prepareJob(r).ConfigureAwait(false);
-                jobs.Add(new ExportJob(r.Id, CopiesOf(r), r.Fields ?? FallbackFields(r), r.Row, t.Objects));
-            }
+            // batch.js:335 — 검증(ValidateAll)이 채운 Fields 로 job 을 만든다.
+            // 행별 데이터 준비(prepareJob)는 exporter 가 그 행을 그리기 직전에 beforeJob 으로 한 번만 부른다.
+            var jobs = targets.Select(r => new ExportJob(r.Id, CopiesOf(r), r.Fields ?? FallbackFields(r), r.Row, t.Objects)).ToList();
 
             var byId = targets.ToDictionary(r => r.Id);
             var adapter = new SyncProgress<(int Index, int Total, ExportJob Job, ExportResult? Res)>(p =>
@@ -399,6 +396,22 @@ public sealed class QueueEngine
         catch (OperationCanceledException)
         {
             result = new BatchResult(false, 0, 0, true, null, 0, Array.Empty<(string, ExportResult)>());
+        }
+        catch (Exception e)
+        {
+            // 최종 파일 저장(merged/용지 모드) 등이 실패하면 그 배치의 행을 '완료'로 남기면 안 된다 — 파일이 없는데 완료로 보이면 재출력이 막힌다
+            var msg = string.IsNullOrEmpty(e.Message) ? e.ToString() : e.Message;
+            foreach (var r in targets)
+            {
+                if (r.Status == "running" || (r.Status == "done" && string.IsNullOrEmpty(r.FileName)))
+                {
+                    r.Status = "error";
+                    r.Error = msg;
+                }
+            }
+            // 행마다 실패 결과를 돌려주어 출력 이력(품질기록)에 실패로 남게 한다
+            var failedResults = targets.Select(r => (r.Id, new ExportResult(false, null, 0, 0, msg))).ToList();
+            result = new BatchResult(false, 0, targets.Count, false, null, 0, failedResults, msg);
         }
         finally
         {
