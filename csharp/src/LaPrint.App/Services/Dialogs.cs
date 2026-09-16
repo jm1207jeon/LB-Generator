@@ -63,6 +63,38 @@ public static class Dialogs
         return Task.FromResult(w.ShowDialog() == true ? result : null);
     }
 
+    /// <summary>내용만 보여 주는 대화상자 (ui.js modal 의 [닫기] 하나짜리). 닫기가 기본·Esc.</summary>
+    public static void Info(Window? owner, string title, FrameworkElement body, double width = 520, string closeLabel = "닫기")
+    {
+        var w = MakeWindow(owner, title, width);
+        w.MaxHeight = 720;
+        var root = new DockPanel { Margin = new Thickness(18, 16, 18, 14) };
+        var close = new Button { Content = closeLabel, MinWidth = 84, IsDefault = true, IsCancel = true, Style = S("PrimaryButton") };
+        close.Click += (_, _) => { w.DialogResult = true; w.Close(); };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        buttons.Children.Add(close);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+        root.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 600 });
+        w.Content = root;
+        w.Loaded += (_, _) => close.Focus();
+        w.ShowDialog();
+    }
+
+    /// <summary>탐색기로 폴더를 연다. 실패는 토스트로 알린다.</summary>
+    public static void OpenFolder(Window? owner, string dir)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Toast(owner, "폴더를 열지 못했습니다: " + ex.Message, ToastLevel.Err);
+        }
+    }
+
     /// <summary>오른쪽 아래 잠깐 뜨는 알림. owner 의 "toastHost" 패널에 붙인다 (없으면 상태 없이 무시).</summary>
     public static void Toast(Window? owner, string msg, ToastLevel level = ToastLevel.Info, int? ms = null)
     {
