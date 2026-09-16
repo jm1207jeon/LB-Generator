@@ -1,0 +1,107 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- 색 토큰 (docs/DESIGN.md §2) — UDInspect · LaVis · 브라우저판 css/style.css 와 같은 뿌리 -->
+
+    <!-- 글자 -->
+    <SolidColorBrush x:Key="InkBrush" Color="#1F2A37"/>          <!-- 본문 글자 -->
+    <SolidColorBrush x:Key="Ink2Brush" Color="#4B5563"/>
+    <SolidColorBrush x:Key="Ink3Brush" Color="#6B7280"/>         <!-- 힌트 -->
+
+    <!-- 바탕 -->
+    <SolidColorBrush x:Key="GroundBrush" Color="#FFFFFF"/>       <!-- 카드/입력 배경 -->
+    <SolidColorBrush x:Key="PaperBrush" Color="#F4F6F9"/>        <!-- 패널 -->
+    <SolidColorBrush x:Key="Paper2Brush" Color="#E9EEF4"/>       <!-- 헤더/탭 -->
+
+    <!-- 선 -->
+    <SolidColorBrush x:Key="LineBrush" Color="#CCD3DB"/>         <!-- 테두리 -->
+    <SolidColorBrush x:Key="Line2Brush" Color="#E2E7ED"/>        <!-- 격자선 -->
+    <SolidColorBrush x:Key="GridLineBrush" Color="#DDDDDD"/>     <!-- DataGrid -->
+
+    <!-- 강조 -->
+    <SolidColorBrush x:Key="AccentBrush" Color="#1A6FB5"/>       <!-- 주 버튼·선택·링크 -->
+    <SolidColorBrush x:Key="AccentDeepBrush" Color="#1A5276"/>   <!-- 강조 글자 -->
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#E3EEF8"/>   <!-- 선택 배경 -->
+
+    <!-- 합격/완료 -->
+    <SolidColorBrush x:Key="PassBrush" Color="#2E9E5B"/>
+    <SolidColorBrush x:Key="PassFillBrush" Color="#D7EFD7"/>
+
+    <!-- 오류 -->
+    <SolidColorBrush x:Key="FailBrush" Color="#9C0006"/>         <!-- 오류 글자 -->
+    <SolidColorBrush x:Key="FailFillBrush" Color="#FFC7CE"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="#D9534F"/>       <!-- 파괴적 버튼 -->
+    <SolidColorBrush x:Key="ErrorStatusBrush" Color="#B01E1E"/>  <!-- 상태줄 오류 -->
+
+    <!-- 경고 -->
+    <SolidColorBrush x:Key="WarnBrush" Color="#9A5B00"/>         <!-- 경고 글자 -->
+    <SolidColorBrush x:Key="WarnFillBrush" Color="#FFF4D6"/>
+    <SolidColorBrush x:Key="WarnLineBrush" Color="#E0B25A"/>
+
+    <!-- 주의·BSC -->
+    <SolidColorBrush x:Key="OrangeBrush" Color="#E67E00"/>       <!-- BSC 표시·강조 숫자 -->
+    <SolidColorBrush x:Key="CautionBrush" Color="#F0AD4E"/>      <!-- 주의 버튼 -->
+
+    <!-- 캔버스 -->
+    <SolidColorBrush x:Key="CanvasBgBrush" Color="#8A97A6"/>     <!-- 캔버스 바탕 -->
+    <SolidColorBrush x:Key="CanvasEdgeBrush" Color="#4B5563"/>   <!-- 라벨 외곽 -->
+    <SolidColorBrush x:Key="SnapGuideBrush" Color="#E0218A"/>    <!-- 스냅 안내선 -->
+
+    <!-- 기본 위젯 (DESIGN.md §3) — 글꼴은 지정하지 않는다 (시스템 Segoe UI / 맑은 고딕) -->
+    <Style TargetType="Button">
+        <Setter Property="Padding" Value="10,5"/>
+        <Setter Property="Margin" Value="2"/>
+    </Style>
+    <Style TargetType="GroupBox">
+        <Setter Property="Margin" Value="4"/>
+        <Setter Property="Padding" Value="6"/>
+    </Style>
+    <Style TargetType="ComboBox">
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="2"/>
+    </Style>
+    <Style TargetType="TextBox">
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Padding" Value="2,3"/>
+    </Style>
+    <Style TargetType="CheckBox">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="4,2"/>
+    </Style>
+
+    <!-- 버튼 변형: PRIMARY / DESTRUCTIVE(오른쪽 끝 24px 분리) / CAUTION -->
+    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+    <Style x:Key="DestructiveButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="{StaticResource DangerBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Margin" Value="24,2,2,2"/>
+    </Style>
+    <Style x:Key="CautionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="{StaticResource CautionBrush}"/>
+        <Setter Property="Foreground" Value="Black"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+
+    <!-- 데이터그리드: 본문 13, 행 높이 24, 격자선 #DDDDDD -->
+    <Style TargetType="DataGrid">
+        <Setter Property="AutoGenerateColumns" Value="False"/>
+        <Setter Property="HeadersVisibility" Value="Column"/>
+        <Setter Property="RowHeaderWidth" Value="0"/>
+        <Setter Property="RowHeight" Value="24"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="CanUserAddRows" Value="False"/>
+        <Setter Property="SelectionMode" Value="Single"/>
+        <Setter Property="SelectionUnit" Value="FullRow"/>
+        <Setter Property="GridLinesVisibility" Value="All"/>
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource GridLineBrush}"/>
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource GridLineBrush}"/>
+        <Setter Property="Background" Value="{StaticResource GroundBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+</ResourceDictionary>

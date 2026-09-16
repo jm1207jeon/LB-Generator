@@ -11,8 +11,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 라벨DB: .xls(BIFF8) · .xlsx · .xlsm 모두 읽는다 (실제 DB가 .xls 다) -->
-    <PackageReference Include="NPOI" Version="2.8.0" />
+    <!-- 라벨DB: .xls(BIFF8) · .xlsx · .xlsm 모두 읽는다 (실제 DB가 .xls 다).
+         2.8.0 은 SkiaSharp 3.x 를 강제해 2.88.9(ZXing·HarfBuzz 바인딩)와 충돌하므로 2.7 계열로 고정 -->
+    <PackageReference Include="NPOI" Version="2.7.1" />
     <!-- 렌더링·조판·PDF. LaVis 와 같은 2.88 계열 (ZXing 바인딩 호환) -->
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />

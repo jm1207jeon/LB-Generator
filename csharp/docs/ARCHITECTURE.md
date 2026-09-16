@@ -16,7 +16,7 @@ csharp/
 
 | 용도 | 패키지 | 근거 |
 |---|---|---|
-| 라벨DB `.xls/.xlsx/.xlsm` | NPOI 2.8.0 | 실제 DB가 BIFF8 `.xls`. 12,199행 열기 2.07초 확인 |
+| 라벨DB `.xls/.xlsx/.xlsm` | NPOI 2.7.1 | 실제 DB가 BIFF8 `.xls`. 12,199행 열기 2.07초 확인. (2.8.0 은 SkiaSharp 3 을 요구해 2.88 계열과 충돌) |
 | 렌더·조판·PDF | SkiaSharp 2.88.9 (+NativeAssets.Linux.NoDependencies) | 화면·PDF·ZPL 이 **렌더러 하나**를 지난다. PDF는 벡터 |
 | 바코드 | ZXing.Net 0.16.11 (+Bindings.SkiaSharp 0.16.14) | GS1 DataMatrix · GS1-128 FNC1 왕복 검증 완료 |
 | 커닝 | SkiaSharp.HarfBuzz 2.88.9 | 커닝 켬일 때만 HarfBuzz 셰이핑 |
