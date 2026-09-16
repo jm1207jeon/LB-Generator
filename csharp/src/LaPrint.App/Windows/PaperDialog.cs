@@ -101,10 +101,10 @@ public sealed class PaperDialog : Window
         gwrap.Children.Add(Mini("mm"));
         AddRow(form, "라벨 사이 간격", gwrap);
 
-        _selAlign = Select(new[] { ("center", "용지 가운데"), ("start", "왼쪽 위부터") }, _opt.Align == "topleft" ? "start" : _opt.Align, "center");
+        _selAlign = Select(new[] { ("center", "용지 가운데"), ("topleft", "왼쪽 위부터") }, _opt.Align == "start" ? "topleft" : _opt.Align, "center");
         AddRow(form, "배치 기준", _selAlign);
 
-        _selRepeat = Select(new[] { ("fill", "한 장을 같은 라벨로 가득 채움"), ("single", "한 장에 1개만") }, _opt.Repeat == "one" ? "single" : _opt.Repeat, "fill");
+        _selRepeat = Select(new[] { ("fill", "한 장을 같은 라벨로 가득 채움"), ("one", "한 장에 1개만") }, _opt.Repeat == "single" ? "one" : _opt.Repeat, "fill");
         _selRepeat.ToolTip = "큐(연속 출력)는 언제나 서로 다른 라벨로 칸을 채웁니다.";
         AddRow(form, "단일 출력 시 반복", _selRepeat, "큐(연속 출력)는 언제나 서로 다른 라벨로 칸을 채웁니다.");
 
