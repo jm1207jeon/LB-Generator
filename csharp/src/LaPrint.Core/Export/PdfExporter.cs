@@ -43,6 +43,11 @@ public sealed class PdfExporter
     /// <summary>PDF 포인트 / mm.</summary>
     public const double PtPerMm = 72.0 / 25.4;
 
+    // SkPDF 는 페이지 크기를 래스터 격자(RasterDpi)에 맞춰 반올림한다. 0.01mm 격자(2540dpi = 100px/mm)로
+    // 잡아야 A4 595.2756pt, 60mm 170.0787pt 처럼 mm 치수가 그대로 MediaBox 에 들어간다.
+    // (출력 해상도 opt.Dpi 를 쓰면 300dpi 에서 0.12pt 까지 어긋난다.)
+    private const float PageRasterDpi = 2540f;
+
     private const string NoOutDir = "저장 폴더가 지정되지 않았습니다.";
     private static readonly Regex CopyTokenRe = new(@"\{COPY\}", RegexOptions.Compiled);
     private static readonly Regex NameSplitRe = new(@"^(.*?)(\.[^.]*)?$", RegexOptions.Compiled | RegexOptions.Singleline);
@@ -488,7 +493,7 @@ public sealed class PdfExporter
             Title = $"LaPrint {Fmt(label.W)}×{Fmt(label.H)}mm",
             Creator = "LaPrint",
             Producer = "LaPrint (SkiaSharp)",
-            RasterDpi = (float)(o.Dpi > 0 ? o.Dpi : 300),
+            RasterDpi = PageRasterDpi,          // 페이지 크기를 mm 그대로 유지하기 위한 격자 (그림 해상도는 ctx.Dpi)
             Creation = DateTime.Now,
             Modified = DateTime.Now,
         };

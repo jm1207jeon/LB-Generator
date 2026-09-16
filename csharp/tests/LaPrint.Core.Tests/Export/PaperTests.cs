@@ -158,7 +158,9 @@ public class PaperTests
     {
         var label = new LabelSize { W = 50, H = 30 };
         var plan = Paper.Plan(label, new LayoutOptions { Paper = "A4", Orientation = "portrait" });
-        const double pxPerMm = 4;
+        // 선 두께가 max(0.5, 0.2×pxPerMm)px 이고 선 중심이 화소 경계에 정확히 걸치므로,
+        // 한 화소가 확실히 덮이도록 8px/mm(≈203dpi)로 그려서 살핀다.
+        const double pxPerMm = 8;
         using var bmp = new SKBitmap((int)(plan.PaperW * pxPerMm), (int)(plan.PaperH * pxPerMm));
         using var c = new SKCanvas(bmp);
         c.Clear(SKColors.White);

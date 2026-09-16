@@ -374,10 +374,13 @@ public class PdfExporterTests : IDisposable
         var ctx = CtxOf(t, "16-0401");
         var store = SampleDb.NewStore();
         var o = Opt("{ITEM}");
-        o.Layout = new LayoutOptions { Paper = "custom", CustomW = 150, CustomH = 90, Orientation = "landscape", MarginMm = 5, GapX = 2, GapY = 2, Outline = true, CropMarks = true };
+        // 150×50 용지(auto → 그대로), 여백 5·간격 2 → 가로 floor((140+2)/62)=2열, 세로 floor((40+2)/32)=1행 = 한 쪽에 2개
+        o.Layout = new LayoutOptions { Paper = "custom", CustomW = 150, CustomH = 50, Orientation = "auto", MarginMm = 5, GapX = 2, GapY = 2, Outline = true, CropMarks = true };
         var plan = Paper.Plan(t.Label, o.Layout);
-        Assert.Equal(2, plan.PerPage);       // 150×90 에 60×30 → 2열 × 1행... 가로 140/62 = 2, 세로 80/32 = 2 → 4? 아래에서 확인
-        var jobs = new[] { JobOf("16-0401"), JobOf("42-0401", 2), JobOf("21-1801") };   // 4장 → perPage 로 나눠 담는다
+        Assert.Equal(2, plan.Cols);
+        Assert.Equal(1, plan.Rows);
+        Assert.Equal(2, plan.PerPage);
+        var jobs = new[] { JobOf("16-0401"), JobOf("42-0401", 2), JobOf("21-1801") };   // 4장 → 칸이 차면 쪽을 더한다
         var res = await new PdfExporter().ExportBatch(t, jobs, o, SlotSwapper(t, ctx, store), null, null, CancellationToken.None);
 
         Assert.True(res.Ok, res.Error);
