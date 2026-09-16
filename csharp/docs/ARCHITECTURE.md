@@ -20,7 +20,7 @@ csharp/
 | 렌더·조판·PDF | SkiaSharp 2.88.9 (+NativeAssets.Linux.NoDependencies) | 화면·PDF·ZPL 이 **렌더러 하나**를 지난다. PDF는 벡터 |
 | 바코드 | ZXing.Net 0.16.11 (+Bindings.SkiaSharp 0.16.14) | GS1 DataMatrix · GS1-128 FNC1 왕복 검증 완료 |
 | 커닝 | SkiaSharp.HarfBuzz 2.88.9 | 커닝 켬일 때만 HarfBuzz 셰이핑 |
-| MVVM | CommunityToolkit.Mvvm 8.4.2 | App 전용 |
+| MVVM | (없음) | 가족 앱과 같이 WPF 코드비하인드 — DESIGN.md §1 |
 | 테스트 | xunit 2.9.3 | LaVis 와 동일 |
 
 ---
