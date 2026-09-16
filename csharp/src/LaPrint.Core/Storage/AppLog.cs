@@ -10,6 +10,9 @@ public static class AppLog
     /// <summary>회전 기준 크기 (1 MB).</summary>
     public const long RotateBytes = 1024 * 1024;
 
+    /// <summary>로그 파일 경로 (오류 대화상자에서 사용자에게 안내).</summary>
+    public static string FilePath => AppPaths.LogFile;
+
     private static readonly object Gate = new();
 
     public static void Info(string msg) => Write("INFO", msg, null);

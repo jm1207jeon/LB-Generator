@@ -1,4 +1,5 @@
 // 앱 진입 — 가족 앱(UDInspect·LaVis)과 같이 코드비하인드 구성. 단일 인스턴스 Mutex, 처리되지 않은 예외는 로그+알림 뒤 계속 실행.
+using LaPrint.Core.Storage;
 using System.Windows;
 using LaPrint.App.Services;
 
