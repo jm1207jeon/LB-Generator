@@ -33,7 +33,7 @@
     <Resource Include="Assets\**\*.png" />
     <Resource Include="Assets\**\*.ico" />
     <!-- 샘플 데이터(샘플_라벨DB.xlsx + 제품 그림 12장) — '샘플 데이터로 체험' 이 %APPDATA%\LaPrint\sample 로 풀어 쓴다 -->
-    <Resource Include="Assets\sample\**\*.jpg;Assets\sample\**\*.xlsx" />
+    <Resource Include="Assets\sample\**\*.*" />
   </ItemGroup>
 
 </Project>
