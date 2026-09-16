@@ -1,7 +1,12 @@
 name: Build LaPrint (C# Windows EXE)
 
-# 솔루션이 빌드되기 전까지는 수동 실행만. (푸시 트리거는 Core·App 구현이 끝난 뒤 켠다)
 on:
+  push:
+    branches: ["**"]
+    paths:
+      - "csharp/**"
+      - ".github/workflows/build-csharp.yml"
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
