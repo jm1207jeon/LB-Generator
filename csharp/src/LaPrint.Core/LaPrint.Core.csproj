@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <Version>3.0.0</Version>
+    <RootNamespace>LaPrint.Core</RootNamespace>
+    <!-- 플랫폼 독립. 화면·PDF·ZPL 이 모두 이 프로젝트의 렌더러 하나를 지나간다. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 라벨DB: .xls(BIFF8) · .xlsx · .xlsm 모두 읽는다 (실제 DB가 .xls 다) -->
+    <PackageReference Include="NPOI" Version="2.8.0" />
+    <!-- 렌더링·조판·PDF. LaVis 와 같은 2.88 계열 (ZXing 바인딩 호환) -->
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+    <!-- GS1 DataMatrix · GS1-128 · Code128 · QR (FNC1 왕복 검증 완료) -->
+    <PackageReference Include="ZXing.Net" Version="0.16.11" />
+    <PackageReference Include="ZXing.Net.Bindings.SkiaSharp" Version="0.16.14" />
+    <!-- 커닝 켬일 때 HarfBuzz 셰이핑으로 글리프 전진폭을 얻는다 -->
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="2.88.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\**\*" />
+  </ItemGroup>
+
+</Project>

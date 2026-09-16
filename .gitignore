@@ -1,1 +1,5 @@
 .scratch/
+csharp/**/bin/
+csharp/**/obj/
+csharp/publish/
+csharp/**/TestResults/

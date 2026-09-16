@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <RootNamespace>LaPrint.App</RootNamespace>
+    <AssemblyName>LaPrint</AssemblyName>
+    <ApplicationIcon>Assets\laprint.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>3.0.0</Version>
+    <Product>LaPrint</Product>
+    <AssemblyTitle>LaPrint</AssemblyTitle>
+    <Description>LaPrint - 의료기기 라벨 조판 · PDF / ZEBRA 출력</Description>
+    <!-- 리눅스 CI에서도 컴파일 검증 가능 (실행은 Windows 전용) -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>ko</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 가족 앱(UDInspect·LaVis)과 같이 코드비하인드 구성 — MVVM 프레임워크·DI 컨테이너 없음 -->
+    <PackageReference Include="SkiaSharp.Views.WPF" Version="2.88.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LaPrint.Core\LaPrint.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\**\*.png" />
+    <Resource Include="Assets\**\*.ico" />
+  </ItemGroup>
+
+</Project>

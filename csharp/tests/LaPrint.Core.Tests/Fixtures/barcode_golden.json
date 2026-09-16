@@ -1,0 +1,37 @@
+[
+ {
+  "sym": "gs1datamatrix",
+  "data": "(01)08806367058034(10)LOT1(17)290531(240)42-0401(21)3",
+  "err": null,
+  "modulesW": 46,
+  "modulesH": 46
+ },
+ {
+  "sym": "gs1-128",
+  "data": "(01)08806367058034(10)LOT1",
+  "err": null,
+  "modulesW": 204,
+  "modulesH": 38.25
+ },
+ {
+  "sym": "code128",
+  "data": "ABC-123",
+  "err": null,
+  "modulesW": 116,
+  "modulesH": 38.25
+ },
+ {
+  "sym": "qrcode",
+  "data": "hello",
+  "err": null,
+  "modulesW": 44,
+  "modulesH": 44
+ },
+ {
+  "sym": "datamatrix",
+  "data": "plain",
+  "err": null,
+  "modulesW": 26,
+  "modulesH": 26
+ }
+]
