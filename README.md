@@ -1,30 +1,42 @@
 # LaPrint — 의료기기 라벨 출력 프로그램
 
 의료기기(스텐트) 라벨을 라벨DB에서 불러온 값으로 조판해 **PDF** 또는 **ZEBRA 프린터(ZPL)** 로 출력하는
-브라우저 단독 실행 프로그램입니다. 설치가 필요 없고, 모든 데이터는 이 PC에만 저장됩니다.
+**Windows 프로그램(C# / .NET 8 / WPF)** 입니다. 설치가 필요 없고, 모든 데이터는 이 PC에만 저장됩니다.
 
-UDInspect(UDI 바코드 검사)와 같은 색·타이포·HFE 체계를 따르는 패밀리 프로그램입니다.
+UDInspect(UDI 바코드 검사) · LaVis(라벨 검사)와 같은 구조(WPF + Core 라이브러리 + xUnit)와
+색·타이포·HFE 체계를 따르는 패밀리 프로그램입니다.
 
 ```
 UDInspect   UDI 라벨을 읽어 검사한다   (검사)
+LaVis       라벨 인쇄물을 검사한다     (검사)
 LaPrint     라벨을 만들어 출력한다     (출력)
 ```
 
-## 실행
+## 실행 (Windows)
 
-**Chrome 또는 Edge**에서 `index.html`을 엽니다. 서버가 필요 없습니다.
+1. GitHub **Releases › Latest Build** 에서 `LaPrint-win-x64-*.zip` 을 받아 폴더에 풉니다.
+2. `LaPrint.exe` 를 실행합니다. .NET 설치가 필요 없는 단일 실행 파일입니다 (Windows 10 이상, x64).
+3. 처음 실행하면 안내창이 뜹니다. **[샘플 데이터로 체험]** 을 누르면 동봉된 샘플 DB와 제품 그림으로
+   폴더 지정 없이 바로 써 볼 수 있습니다. 실제로 쓰실 때는 ⚙ 설정 › 폴더 경로에서
+   라벨DB 폴더·파일(`01.라벨출력DB.xls`, `02.라벨출력DB_BSC.xls`), 이미지 폴더, PDF 저장 폴더를 지정합니다.
+
+> 네트워크 폴더는 `\\서버\공유\...` UNC 경로를 그대로 지정할 수 있습니다 (브라우저판과 달리 드라이브 연결이 필요 없습니다).
+> 설정·서식·출력 이력은 `%APPDATA%\LaPrint\` 에 저장됩니다. 문제가 생기면 같은 폴더의 `app.log` 를 보내 주세요.
+
+### 소스에서 빌드
 
 ```
-# 로컬 서버로 열고 싶다면
-python -m http.server 8000     →  http://localhost:8000
+# .NET 8 SDK 필요 (Windows). 리눅스/CI 에서도 컴파일·Core 테스트는 가능합니다.
+dotnet test csharp/tests/LaPrint.Core.Tests -c Release      # 골든 테스트
+dotnet run --project csharp/src/LaPrint.App -c Release      # 실행 (Windows)
+dotnet publish csharp/src/LaPrint.App -c Release -r win-x64 --self-contained true ^
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish   # 단일 exe
 ```
 
-처음 실행하면 안내창이 뜹니다. **[샘플 데이터로 체험]** 을 누르면 동봉된 샘플 DB와 제품 그림으로
-폴더 지정 없이 바로 써 볼 수 있습니다.
+GitHub Actions(`.github/workflows/build-csharp.yml`)가 windows-latest 에서 테스트 → 단일 exe → zip → `latest-build` 릴리스를 자동으로 만듭니다.
 
-> 폴더 연동(라벨DB·이미지·PDF 저장)은 File System Access API를 사용하므로 Chrome/Edge 계열이 필요합니다.
-> 네트워크 폴더는 Windows에서 드라이브 문자로 연결(예: `Z:`)한 뒤 폴더 선택 창에서 그 드라이브를 고르면 됩니다.
-> 브라우저 보안상 `\\서버\공유` 경로를 문자열로 직접 입력할 수는 없습니다.
+> **브라우저판(레거시)** — `index.html` 을 Chrome/Edge 로 열면 같은 기능의 브라우저 버전이 실행됩니다.
+> C# 판은 이 브라우저판을 그대로 옮긴 것이며, 브라우저판이 실제 라벨DB로 계산한 기준값을 골든 테스트로 삼아 동일함을 검증합니다.
 
 ## 화면 구성
 
@@ -245,28 +257,26 @@ sample/images/             제품 그림 12개 (투명 PNG · 불투명 JPG · �
 ## 폴더 구조
 
 ```
-index.html                앱 진입점
-css/style.css             디자인 시스템 (UDInspect 토큰 + 다크 모드)
-assets/icon.svg           프로그램 아이콘 (패밀리룩)
-assets/template_bg.js     기본 배경 서식 (A3 라벨 세트)
-js/store.js               IndexedDB 영속화 · 출력 이력
-js/settings.js            설정 · 폴더 경로 · 권한 관리
-js/data.js                라벨DB 파싱 · 필드 계산 · UDI · 플레이스홀더 · 검증
-js/text.js                조판 엔진 (자간·커닝·어간·행간·장평·자동축소)
-js/barcode.js             바코드 엔진 (심볼로지 5종 · 바인딩 3종 · GS1 검증)
-js/link.js                데이터 링크 시각화
-js/imaging.js             이미지 로딩 · 배경 자동 투명화
-js/paper.js               라벨 규격 · 용지 배치(면付) 계산
-js/extract.js             A3 원판에서 라벨 한 장 떼어내기
-js/editor.js              캔버스 편집기 (줌·스냅·실행취소·정렬)
-js/ui.js                  상태바 · 토스트 · 모달
-js/mapper.js              데이터 매칭 편집기 (별도 창 · 열 지정)
-js/inspector.js           속성 패널 · 객체 트리
-js/exporter.js            프리플라이트 검증 · PDF 출력
-js/batch.js               연속 작업 큐
-js/zpl.js                 ZEBRA 프린터 (ZPL II)
-js/app.js                 전체 연결
-libs/                     SheetJS · bwip-js · jsPDF (오프라인 번들)
+csharp/
+  LaPrint.sln
+  src/LaPrint.Core/         플랫폼 독립 엔진 (net8.0) — 리눅스 CI 에서도 테스트
+    Model/                  서식(LabelTemplate)·객체 모델, JSON 왕복
+    Data/                   라벨DB 로딩(NPOI) · 프로필/열 매칭 · 필드 계산 · UDI · 플레이스홀더 · 검증 · 매칭 점검
+    Barcode/                GS1 검증 · ZXing 인코더(GS1 DataMatrix/GS1-128/Code128/QR) · 바인딩
+    Typography/             조판 엔진 (자간·커닝·어간·행간·장평·자동축소, SkiaSharp + HarfBuzz)
+    Render/                 라벨 렌더러 (화면·PDF·ZPL 이 같은 코드 경로)
+    Export/                 프리플라이트 · 파일명 · 용지 배치(면付) · 원판 추출 · 벡터 PDF · 연속 출력
+    Imaging/                이미지 폴더(대소문자 무시) · 배경 자동 투명화 · 슬롯 로딩
+    Zpl/                    흑백 변환 · ZPL 압축 · ^GFA · 전송(스풀러 RAW · TCP · 파일)
+    Batch/                  연속 작업 큐
+    Storage/                설정 · 서식 · 세션 · 이력 · DB 캐시 · 로그 (%APPDATA%\LaPrint)
+  src/LaPrint.App/          WPF 화면 (코드비하인드, Theme.xaml, SKElement 캔버스 편집기)
+  tests/LaPrint.Core.Tests/ xUnit — 브라우저판 골든 기준값 · 샘플 DB · 실제 DB 구조 검증
+  docs/ARCHITECTURE.md      Core 계약 · 골든 테스트 대응표
+  docs/DESIGN.md            색 토큰 · HFE 규칙 · 문구 규칙 (UDInspect·LaVis 와 동일)
+
+index.html · css/ · js/ · libs/ · assets/   브라우저판 (레거시, 기준 구현)
+sample/                     샘플 라벨DB · 제품 그림
 ```
 
 ## 원본 엑셀과의 대응
@@ -284,13 +294,10 @@ libs/                     SheetJS · bwip-js · jsPDF (오프라인 번들)
 
 ## 알려진 제약
 
-- 폴더 연동은 Chrome·Edge에서만 동작합니다. 다른 브라우저에서는 파일을 직접 고르고 PDF는 다운로드됩니다.
-- 브라우저를 다시 열면 폴더 권한이 해제됩니다. 상단 배너의 **[다시 연결]** 을 한 번 누르면 복구됩니다.
-- A3처럼 큰 라벨을 600dpi 무손실로 만들면 한 장에 3초 이상 걸립니다.
-  기본값(300dpi·자동)에서는 약 0.4초이며, 실측 결과 기본 서식의 바코드 9종이 두 방식 모두에서 정상 판독되었습니다.
 - ZPL은 그래픽 전송 방식이라 순수 텍스트 명령보다 전송량이 큽니다. 일반 데스크톱 모델의 최대 인쇄 폭(약 104mm)을 넘는
   라벨은 산업용 모델이 필요합니다.
 - **BSC 출고(일본)** 는 DB 쪽만 준비되어 있습니다. 파일·열 매칭·조회 키·캐시는 구분마다 따로 관리되고
   기본 열 매칭도 실제 값을 확인해 넣어 두었지만, **BSC 전용 라벨 서식(레이아웃)은 아직 만들지 않았습니다.**
   BSC DB에만 있는 `UPN` · `Catalog or Ref #` · `스텐트구분` · `형명(일본/말레이시아)` 은 필드로 준비되어 있어
   서식에서 `{UPN}` 처럼 바로 쓸 수 있습니다.
+- 브라우저판(레거시)은 Chrome·Edge 에서만 폴더 연동이 되고 재시작 후 [다시 연결]이 필요합니다. C# 판에는 해당 없음.
